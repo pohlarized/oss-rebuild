@@ -26,26 +26,29 @@ import (
 // The strategies are pointers because omitempty does not treat an empty struct as empty, but it
 // does treat nil pointers as empty.
 type StrategyOneOf struct {
-	LocationHint         *rebuild.LocationHint          `json:"rebuild_location_hint,omitempty" yaml:"rebuild_location_hint,omitempty"`
-	PureWheelBuild       *pypi.PureWheelBuild           `json:"pypi_pure_wheel_build,omitempty" yaml:"pypi_pure_wheel_build,omitempty"`
-	PyPISdistBuild       *pypi.SdistBuild               `json:"pypi_sdist_build,omitempty" yaml:"pypi_sdist_build,omitempty"`
-	NPMPackBuild         *npm.NPMPackBuild              `json:"npm_pack_build,omitempty" yaml:"npm_pack_build,omitempty"`
-	NPMCustomBuild       *npm.NPMCustomBuild            `json:"npm_custom_build,omitempty" yaml:"npm_custom_build,omitempty"`
-	CratesIOCargoPackage *cratesio.CratesIOCargoPackage `json:"cratesio_cargo_package,omitempty" yaml:"cratesio_cargo_package,omitempty"`
-	MavenBuild           *maven.MavenBuild              `json:"maven_build,omitempty" yaml:"maven_build,omitempty"`
-	GradleBuild          *maven.GradleBuild             `json:"gradle_build,omitempty" yaml:"gradle_build,omitempty"`
-	DebianPackage        *debian.DebianPackage          `json:"debian_package,omitempty" yaml:"debian_package,omitempty"`
-	Debrebuild           *debian.Debrebuild             `json:"debrebuild,omitempty" yaml:"debrebuild,omitempty"`
-	DebootsnapSbuild     *debian.DebootsnapSbuild       `json:"debootsnap_sbuild,omitempty" yaml:"debootsnap_sbuild,omitempty"`
-	GemBuild             *rubygems.GemBuild             `json:"rubygems_gem_build,omitempty" yaml:"rubygems_gem_build,omitempty"`
-	ManualStrategy       *rebuild.ManualStrategy        `json:"manual,omitempty" yaml:"manual,omitempty"`
-	WorkflowStrategy     *rebuild.WorkflowStrategy      `json:"flow,omitempty" yaml:"flow,omitempty"`
+	CommitInferenceStrategyNameHint *rebuild.CommitInferenceStrategyHint 	 `json:"rebuild_strategy_name_hint,omitempty" yaml:"rebuild_strategy_name_hint,omitempty"`
+	LocationHint                    *rebuild.LocationHint                    `json:"rebuild_location_hint,omitempty" yaml:"rebuild_location_hint,omitempty"`
+	PureWheelBuild                  *pypi.PureWheelBuild                     `json:"pypi_pure_wheel_build,omitempty" yaml:"pypi_pure_wheel_build,omitempty"`
+	PyPISdistBuild                  *pypi.SdistBuild                         `json:"pypi_sdist_build,omitempty" yaml:"pypi_sdist_build,omitempty"`
+	NPMPackBuild                    *npm.NPMPackBuild                        `json:"npm_pack_build,omitempty" yaml:"npm_pack_build,omitempty"`
+	NPMCustomBuild                  *npm.NPMCustomBuild                      `json:"npm_custom_build,omitempty" yaml:"npm_custom_build,omitempty"`
+	CratesIOCargoPackage            *cratesio.CratesIOCargoPackage           `json:"cratesio_cargo_package,omitempty" yaml:"cratesio_cargo_package,omitempty"`
+	MavenBuild                      *maven.MavenBuild                        `json:"maven_build,omitempty" yaml:"maven_build,omitempty"`
+	GradleBuild                     *maven.GradleBuild                       `json:"gradle_build,omitempty" yaml:"gradle_build,omitempty"`
+	DebianPackage                   *debian.DebianPackage                    `json:"debian_package,omitempty" yaml:"debian_package,omitempty"`
+	Debrebuild                      *debian.Debrebuild                       `json:"debrebuild,omitempty" yaml:"debrebuild,omitempty"`
+	DebootsnapSbuild                *debian.DebootsnapSbuild                 `json:"debootsnap_sbuild,omitempty" yaml:"debootsnap_sbuild,omitempty"`
+	GemBuild             			*rubygems.GemBuild             			 `json:"rubygems_gem_build,omitempty" yaml:"rubygems_gem_build,omitempty"`
+	ManualStrategy                  *rebuild.ManualStrategy                  `json:"manual,omitempty" yaml:"manual,omitempty"`
+	WorkflowStrategy                *rebuild.WorkflowStrategy                `json:"flow,omitempty" yaml:"flow,omitempty"`
 }
 
 // NewStrategyOneOf creates a StrategyOneOf from a rebuild.Strategy, using typecasting to put the strategy in the right place.
 func NewStrategyOneOf(s rebuild.Strategy) StrategyOneOf {
 	oneof := StrategyOneOf{}
 	switch t := s.(type) {
+	case *rebuild.CommitInferenceStrategyHint:
+		oneof.CommitInferenceStrategyNameHint = t
 	case *rebuild.LocationHint:
 		oneof.LocationHint = t
 	case *pypi.PureWheelBuild:
@@ -83,6 +86,10 @@ func (oneof *StrategyOneOf) Strategy() (rebuild.Strategy, error) {
 	var num int
 	var s rebuild.Strategy
 	{
+		if oneof.CommitInferenceStrategyNameHint != nil {
+			num++
+			s = oneof.CommitInferenceStrategyNameHint
+		}
 		if oneof.LocationHint != nil {
 			num++
 			s = oneof.LocationHint
@@ -301,8 +308,13 @@ func (req InferenceRequest) Validate() error {
 	if req.StrategyHint == nil {
 	} else if s, err := req.StrategyHint.Strategy(); err != nil {
 		return err
-	} else if _, ok := s.(*rebuild.LocationHint); !ok {
-		return errors.Errorf("strategy hint should be a LocationHint, got: %T", s)
+	} else {
+		switch s.(type) {
+		case *rebuild.LocationHint, *rebuild.CommitInferenceStrategyHint:
+			// Valid hint types
+		default:
+			return errors.Errorf("strategy hint should be a LocationHint or StrategyNameHint, got: %T", s)
+		}
 	}
 	if req.Artifact == "" {
 		return errors.New("artifact must not be empty")
@@ -319,8 +331,22 @@ func (req InferenceRequest) LocationHint() *rebuild.LocationHint {
 	if req.StrategyHint == nil {
 		return nil
 	}
+	strategy, _ := req.StrategyHint.Strategy()
+	if location_hint, ok := strategy.(*rebuild.LocationHint); ok {
+		return location_hint
+	}
+	return nil
+}
+
+func (req InferenceRequest) StrategyNameHint() *rebuild.CommitInferenceStrategyHint {
+	if req.StrategyHint == nil {
+		return nil
+	}
 	s, _ := req.StrategyHint.Strategy()
-	return s.(*rebuild.LocationHint)
+	if sh, ok := s.(*rebuild.CommitInferenceStrategyHint); ok {
+		return sh
+	}
+	return nil
 }
 
 type CreateRunRequest struct {

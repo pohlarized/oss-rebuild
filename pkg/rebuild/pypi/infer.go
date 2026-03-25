@@ -267,7 +267,13 @@ func hasZipDir(dir string, zr *zip.Reader) bool {
 	return false
 }
 
-func (Rebuilder) InferStrategy(ctx context.Context, t rebuild.Target, mux rebuild.RegistryMux, rcfg *rebuild.RepoConfig, hint rebuild.Strategy) (rebuild.Strategy, error) {
+func (Rebuilder) InferStrategy(
+	ctx context.Context,
+	t rebuild.Target,
+	mux rebuild.RegistryMux,
+	rcfg *rebuild.RepoConfig,
+	strategyHint rebuild.Strategy,
+) (rebuild.Strategy, error) {
 	name, version := t.Package, t.Version
 	release, err := mux.PyPI.Release(ctx, name, version)
 	if err != nil {
@@ -277,18 +283,27 @@ func (Rebuilder) InferStrategy(ctx context.Context, t rebuild.Target, mux rebuil
 	cfg := &PureWheelBuild{}
 	var ref, dir string
 	var a *pypireg.Artifact
-	lh, ok := hint.(*rebuild.LocationHint)
-	if hint != nil && !ok {
-		return nil, errors.Errorf("unsupported hint type: %T", hint)
-	}
-	if lh != nil && lh.Ref != "" {
-		ref = lh.Ref
-		if lh.Dir != "" {
-			dir = lh.Dir
-		} else {
-			dir = rcfg.Dir
+	if strategyHint != nil {
+		switch h := strategyHint.(type) {
+		case *rebuild.LocationHint:
+			if h.Ref != "" {
+				ref = h.Ref
+				if h.Dir != "" {
+					dir = h.Dir
+				} else {
+					dir = rcfg.Dir
+				}
+			}
+		case *rebuild.CommitInferenceStrategyHint:
+			if h.Name != rebuild.CommitInferenceStrategyTag {
+				return nil, errors.Errorf("unsupported strategy hint for pypi: %s", h.Name)
+			}
+			// Let it fall through to the tag searching logic.
+		default:
+			return nil, errors.Errorf("unsupported hint type: %T", strategyHint)
 		}
-	} else {
+	}
+	if ref == "" {
 		ref, err = findGitRef(release.Name, version, rcfg)
 		if err != nil {
 			return cfg, err

@@ -90,3 +90,25 @@ func (s *LocationHint) GenerateFor(t Target, be BuildEnv) (Instructions, error) 
 }
 
 var _ Strategy = &LocationHint{}
+
+// CommitInferenceStrategyName represents a named forcing function for commit inference.
+type CommitInferenceStrategyName string
+
+const (
+	CommitInferenceStrategyTag      CommitInferenceStrategyName = "tag"
+	CommitInferenceStrategyRegistry CommitInferenceStrategyName = "registry"
+	CommitInferenceStrategyManifest CommitInferenceStrategyName = "manifest"
+)
+
+// CommitInferenceStrategyHint is a partial strategy used to force the inference machinery to use a specific named heuristic.
+type CommitInferenceStrategyHint struct {
+	Name CommitInferenceStrategyName `json:"name" yaml:"name"`
+	Location
+}
+
+// GenerateFor is unsupported for StrategyNameHint.
+func (s *CommitInferenceStrategyHint) GenerateFor(t Target, be BuildEnv) (Instructions, error) {
+	return Instructions{}, errors.New("StrategyNameHint must be expanded using inference")
+}
+
+var _ Strategy = &CommitInferenceStrategyHint{}

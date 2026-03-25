@@ -43,17 +43,18 @@ import (
 
 // Config holds all configuration for the infer command.
 type Config struct {
-	Ecosystem        string
-	Package          string
-	Version          string
-	Artifact         string
-	RepoHint         string
-	API              string
-	Format           string
-	BootstrapBucket  string
-	BootstrapVersion string
-	GitCacheURL      string
-	MemoryLimit      string
+	Ecosystem               string
+	Package                 string
+	Version                 string
+	Artifact                string
+	RepoHint                string
+	CommitInferenceStrategy string
+	API                     string
+	Format                  string
+	BootstrapBucket         string
+	BootstrapVersion        string
+	GitCacheURL             string
+	MemoryLimit      		string
 }
 
 // Validate ensures the configuration is valid.
@@ -69,6 +70,21 @@ func (c Config) Validate() error {
 	}
 	if c.API != "" && c.GitCacheURL != "" {
 		return errors.New("git-cache-url is not supported when using a remote API")
+	}
+	if c.CommitInferenceStrategy != "" {
+		switch rebuild.CommitInferenceStrategyName(c.CommitInferenceStrategy) {
+		// These strategies are valid in principle, although which one is actually valid depends on
+		// the specific ecosystem.
+		case rebuild.CommitInferenceStrategyTag, rebuild.CommitInferenceStrategyRegistry, rebuild.CommitInferenceStrategyManifest:
+		default:
+			return errors.Errorf(
+				"invalid strategy: %s. Allowed values are: %s, %s, %s",
+				c.CommitInferenceStrategy,
+				rebuild.CommitInferenceStrategyTag,
+				rebuild.CommitInferenceStrategyRegistry,
+				rebuild.CommitInferenceStrategyManifest,
+			)
+		}
 	}
 	return nil
 }
@@ -126,7 +142,16 @@ func Handler(ctx context.Context, cfg Config, deps *Deps) (*act.NoOutput, error)
 		debug.SetMemoryLimit(n)
 	}
 	var strategyHint *schema.StrategyOneOf
-	if cfg.RepoHint != "" {
+	if cfg.CommitInferenceStrategy != "" {
+		strategyHint = &schema.StrategyOneOf{
+			CommitInferenceStrategyNameHint: &rebuild.CommitInferenceStrategyHint{
+				Name: rebuild.CommitInferenceStrategyName(cfg.CommitInferenceStrategy),
+				Location: rebuild.Location{
+					Repo: cfg.RepoHint,
+				},
+			},
+		}
+	} else if cfg.RepoHint != "" {
 		strategyHint = &schema.StrategyOneOf{
 			LocationHint: &rebuild.LocationHint{
 				Location: rebuild.Location{
@@ -277,7 +302,17 @@ func Handler(ctx context.Context, cfg Config, deps *Deps) (*act.NoOutput, error)
 	case "", "strategy", "strategy-or-status":
 		enc := json.NewEncoder(deps.IO.Out)
 		enc.SetIndent("", "  ")
-		if err := enc.Encode(resp); err != nil {
+		var out any = resp
+		if cfg.CommitInferenceStrategy != "" {
+			out = struct {
+				*schema.StrategyOneOf
+				Strategy string `json:"strategy,omitempty"`
+			}{
+				StrategyOneOf: resp,
+				Strategy:      cfg.CommitInferenceStrategy,
+			}
+		}
+		if err := enc.Encode(out); err != nil {
 			return nil, errors.Wrap(err, "encoding result")
 		}
 	case "dockerfile":
@@ -323,7 +358,7 @@ func Handler(ctx context.Context, cfg Config, deps *Deps) (*act.NoOutput, error)
 func Command() *cobra.Command {
 	cfg := Config{}
 	cmd := &cobra.Command{
-		Use:   "infer --ecosystem <ecosystem> --package <name> --version <version> [--repo-hint <repo>] [--artifact <name>] [--api <URI>] [--format strategy|dockerfile|debug-steps]",
+		Use:   "infer --ecosystem <ecosystem> --package <name> --version <version> [--repo-hint <repo>] [--commit-inference-strategy <strategy>] [--artifact <name>] [--api <URI>] [--format strategy|dockerfile|debug-steps]",
 		Short: "Run inference",
 		Args:  cobra.NoArgs,
 		RunE: cli.RunE(
@@ -345,6 +380,7 @@ func flagSet(name string, cfg *Config) *flag.FlagSet {
 	set.StringVar(&cfg.Version, "version", "", "the version of the package")
 	set.StringVar(&cfg.Artifact, "artifact", "", "the artifact name")
 	set.StringVar(&cfg.RepoHint, "repo-hint", "", "a hint of the repository URL where the package is hosted")
+	set.StringVar(&cfg.CommitInferenceStrategy, "commit-inference-strategy", "", "a specific named commit inference strategy to force (valid strategies are `tag`, `registry`, `log`)")
 	set.StringVar(&cfg.API, "api", "", "OSS Rebuild API endpoint URI")
 	set.StringVar(&cfg.Format, "format", "", "format of the output (strategy|strategy-or-status|dockerfile|debug-steps|shell-script)")
 	set.StringVar(&cfg.BootstrapBucket, "bootstrap-bucket", "", "the gcs bucket where bootstrap tools are stored")

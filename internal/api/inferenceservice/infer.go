@@ -20,30 +20,49 @@ import (
 	"google.golang.org/grpc/codes"
 )
 
-func doInfer(ctx context.Context, rebuilder rebuild.Rebuilder, t rebuild.Target, mux rebuild.RegistryMux, hint rebuild.Strategy, ropt *gitx.RepositoryOptions) (rebuild.Strategy, error) {
+// The strategy is build from the strategy hint, and represents exactly one of the valid strategies
+func doInfer(
+	ctx context.Context,
+	rebuilder rebuild.Rebuilder,
+	target rebuild.Target,
+	mux rebuild.RegistryMux,
+	initialRebuildStrategy rebuild.Strategy,
+	ropt *gitx.RepositoryOptions,
+) (rebuild.Strategy, error) {
 	var repo string
-	if lh, ok := hint.(*rebuild.LocationHint); ok && lh != nil {
+	// First, we get the repo. In my case, this is usually just given by the hint.
+	if locationHint, ok := initialRebuildStrategy.(*rebuild.LocationHint); ok && locationHint != nil && locationHint.Repo != "" {
 		var err error
-		repo, err = uri.CanonicalizeRepoURI(lh.Location.Repo)
+		repo, err = uri.CanonicalizeRepoURI(locationHint.Repo)
+		if err != nil {
+			return nil, errors.Wrap(err, "canonicalizing repo hint")
+		}
+	} else if strategyNameHint, ok := initialRebuildStrategy.(*rebuild.CommitInferenceStrategyHint); ok && strategyNameHint != nil && strategyNameHint.Repo != "" {
+		var err error
+		repo, err = uri.CanonicalizeRepoURI(strategyNameHint.Repo)
 		if err != nil {
 			return nil, errors.Wrap(err, "canonicalizing repo hint")
 		}
 	} else {
 		var err error
-		repo, err = rebuilder.InferRepo(ctx, t, mux)
+		repo, err = rebuilder.InferRepo(ctx, target, mux)
 		if err != nil {
 			return nil, err
 		}
 	}
-	rcfg, err := rebuilder.CloneRepo(ctx, t, repo, ropt)
+	// Now we clone the repo
+	rcfg, err := rebuilder.CloneRepo(ctx, target, repo, ropt)
 	if err != nil {
 		return nil, err
 	}
-	strategy, err := rebuilder.InferStrategy(ctx, t, mux, &rcfg, hint)
+	// Then we infer the actual strategy -- this is the main inference we do
+	// The rebuilder is given by the calling function `Infer`, chosen according to the ecosystem
+	// from `pkg/rebuild/meta/meta.go::AllRebuilders`
+	rebuildStrategy, err := rebuilder.InferStrategy(ctx, target, mux, &rcfg, initialRebuildStrategy)
 	if err != nil {
 		return nil, err
 	}
-	return strategy, nil
+	return rebuildStrategy, nil
 }
 
 type InferDeps struct {
@@ -75,8 +94,8 @@ func Infer(ctx context.Context, req schema.InferenceRequest, deps *InferDeps) (*
 		ctx = context.WithValue(ctx, rebuild.CratesRegistryStubID, deps.CratesRegistryStub)
 	}
 	mux := meta.NewRegistryMux(deps.HTTPClient)
-	var s rebuild.Strategy
-	t := rebuild.Target{
+	var strategy rebuild.Strategy
+	target := rebuild.Target{
 		Ecosystem: req.Ecosystem,
 		Package:   req.Package,
 		Version:   req.Version,
@@ -86,11 +105,18 @@ func Infer(ctx context.Context, req schema.InferenceRequest, deps *InferDeps) (*
 	if !ok {
 		return nil, api.AsStatus(codes.InvalidArgument, errors.New("unsupported ecosystem"))
 	}
-	s, err := doInfer(ctx, rebuilder, t, mux, req.LocationHint(), repoOpt)
+	if req.StrategyHint != nil {
+		var err error
+		strategy, err = req.StrategyHint.Strategy()
+		if err != nil {
+			return nil, api.AsStatus(codes.InvalidArgument, errors.Wrap(err, "invalid strategy hint"))
+		}
+	}
+	strategy, err := doInfer(ctx, rebuilder, target, mux, strategy, repoOpt)
 	if err != nil {
 		log.Printf("No inference for [pkg=%s, version=%v]: %v\n", req.Package, req.Version, err)
 		return nil, api.AsStatus(codes.Internal, errors.Wrap(err, "failed to infer strategy"))
 	}
-	oneof := schema.NewStrategyOneOf(s)
+	oneof := schema.NewStrategyOneOf(strategy)
 	return &oneof, nil
 }
