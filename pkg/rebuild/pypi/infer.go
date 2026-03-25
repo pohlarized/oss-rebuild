@@ -22,7 +22,6 @@ import (
 	"github.com/go-git/go-git/v5/plumbing/transport"
 	"github.com/google/oss-rebuild/internal/gitx"
 	"github.com/google/oss-rebuild/internal/uri"
-	pypiresolver "github.com/google/oss-rebuild/pkg/rebuild/pypi/parsing"
 	"github.com/google/oss-rebuild/pkg/rebuild/rebuild"
 	pypireg "github.com/google/oss-rebuild/pkg/registry/pypi"
 	"github.com/pkg/errors"
@@ -269,12 +268,12 @@ func hasZipDir(dir string, zr *zip.Reader) bool {
 
 func (Rebuilder) InferStrategy(
 	ctx context.Context,
-	t rebuild.Target,
+	target rebuild.Target,
 	mux rebuild.RegistryMux,
 	rcfg *rebuild.RepoConfig,
 	strategyHint rebuild.Strategy,
 ) (rebuild.Strategy, error) {
-	name, version := t.Package, t.Version
+	name, version := target.Package, target.Version
 	release, err := mux.PyPI.Release(ctx, name, version)
 	if err != nil {
 		return nil, err
@@ -282,21 +281,20 @@ func (Rebuilder) InferStrategy(
 	// TODO: support different build types.
 	cfg := &PureWheelBuild{}
 	var ref, dir string
-	var a *pypireg.Artifact
 	if strategyHint != nil {
-		switch h := strategyHint.(type) {
+		switch hint := strategyHint.(type) {
 		case *rebuild.LocationHint:
-			if h.Ref != "" {
-				ref = h.Ref
-				if h.Dir != "" {
-					dir = h.Dir
+			if hint.Ref != "" {
+				ref = hint.Ref
+				if hint.Dir != "" {
+					dir = hint.Dir
 				} else {
 					dir = rcfg.Dir
 				}
 			}
 		case *rebuild.CommitInferenceStrategyHint:
-			if h.Name != rebuild.CommitInferenceStrategyTag {
-				return nil, errors.Errorf("unsupported strategy hint for pypi: %s", h.Name)
+			if hint.Name != rebuild.CommitInferenceStrategyTag {
+				return nil, errors.Errorf("unsupported strategy hint for pypi: %s", hint.Name)
 			}
 			// Let it fall through to the tag searching logic.
 		default:
@@ -310,83 +308,15 @@ func (Rebuilder) InferStrategy(
 		}
 		dir = rcfg.Dir
 	}
-
-	for _, art := range release.Artifacts {
-		if art.Filename == t.Artifact {
-			a = &art
-			break
-		}
-	}
-	if a == nil {
-		return cfg, errors.Errorf("artifact %s not found in release", t.Artifact)
-	}
-	log.Printf("Downloading artifact: %s", a.URL)
-	r, err := mux.PyPI.Artifact(ctx, name, version, a.Filename)
-	if err != nil {
-		return nil, err
-	}
-	body, err := io.ReadAll(r)
-	if err != nil {
-		return nil, errors.Wrapf(err, "[INTERNAL] Failed to read upstream artifact")
-	}
 	var reqs []string
-	if strings.HasSuffix(a.Filename, ".whl") {
-		zr, err := zip.NewReader(bytes.NewReader(body), a.Size)
-		if err != nil {
-			return nil, errors.Wrapf(err, "[INTERNAL] Failed to initialize upstream zip reader")
-		}
-		reqs, err = inferRequirements(release.Name, version, zr)
-		if err != nil {
-			return cfg, err
-		}
-	} else if strings.HasSuffix(a.Filename, ".tar.gz") {
-		// For .tar.gz files (source distributions), we don't infer requirements from the archive
-		// We'll get them from pyproject.toml below
-		reqs = []string{}
-	}
-	// Extract pyproject.toml requirements.
-	{
-		commit, err := rcfg.Repository.CommitObject(plumbing.NewHash(ref))
-		if err != nil {
-			return cfg, errors.Wrapf(err, "Failed to get commit object")
-		}
-		tree, err := commit.Tree()
-		if err != nil {
-			return cfg, errors.Wrapf(err, "Failed to get tree")
-		}
-		newFoundDir, err := pypiresolver.DiscoverBuildDir(ctx, tree, name, version, dir)
-		if err != nil {
-			log.Println(errors.Wrap(err, "Failed to discover build dir."))
-		} else {
-			// NOTE - This should NOT overwrite the hint dir if one exists, but utilize it and return it again
-			//   Test "pyproject.toml - Detect package with dir hint" showcases this
-			dir = newFoundDir
-		}
-		if buildReqs, err := pypiresolver.ExtractRequirements(ctx, tree, dir); err != nil {
-			log.Println(errors.Wrap(err, "Failed to extract reqs from build files."))
-		} else {
-			existing := make(map[string]bool)
-			pkgname := func(req string) string {
-				return strings.FieldsFunc(req, func(r rune) bool { return strings.ContainsRune("=<>~! \t", r) })[0]
-			}
-			for _, req := range reqs {
-				existing[pkgname(req)] = true
-			}
-			for _, newReq := range buildReqs {
-				if pkg := pkgname(newReq); !existing[pkg] {
-					reqs = append(reqs, newReq)
-				}
-			}
-		}
-	}
-	if strings.HasSuffix(a.Filename, ".tar.gz") {
+	if strings.HasSuffix(target.Artifact, ".tar.gz") {
 		return &SdistBuild{
 			Location: rebuild.Location{
 				Repo: rcfg.URI,
 				Dir:  dir,
 				Ref:  ref,
 			},
-			PythonVersion: inferPythonVersion(reqs),
+			PythonVersion: "latest",
 			Requirements:  reqs,
 			RegistryTime:  a.UploadTime,
 		}, nil
@@ -397,7 +327,7 @@ func (Rebuilder) InferStrategy(
 				Dir:  dir,
 				Ref:  ref,
 			},
-			PythonVersion: inferPythonVersion(reqs),
+			PythonVersion: "latest",
 			Requirements:  reqs,
 			RegistryTime:  a.UploadTime,
 		}, nil
