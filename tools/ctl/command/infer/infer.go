@@ -47,6 +47,7 @@ type Config struct {
 	Version          string
 	Artifact         string
 	RepoHint         string
+	StrategyHint     string
 	API              string
 	Format           string
 	BootstrapBucket  string
@@ -125,12 +126,13 @@ func Handler(ctx context.Context, cfg Config, deps *Deps) (*act.NoOutput, error)
 		debug.SetMemoryLimit(n)
 	}
 	var strategyHint *schema.StrategyOneOf
-	if cfg.RepoHint != "" {
+	if cfg.RepoHint != "" || cfg.StrategyHint != "" {
 		strategyHint = &schema.StrategyOneOf{
 			LocationHint: &rebuild.LocationHint{
 				Location: rebuild.Location{
 					Repo: cfg.RepoHint,
 				},
+				CommitInferenceStrategy: cfg.StrategyHint,
 			},
 		}
 	}
@@ -318,7 +320,7 @@ func Handler(ctx context.Context, cfg Config, deps *Deps) (*act.NoOutput, error)
 func Command() *cobra.Command {
 	cfg := Config{}
 	cmd := &cobra.Command{
-		Use:   "infer --ecosystem <ecosystem> --package <name> --version <version> [--repo-hint <repo>] [--artifact <name>] [--api <URI>] [--format strategy|dockerfile|debug-steps]",
+		Use:   "infer --ecosystem <ecosystem> --package <name> --version <version> [--repo-hint <repo>] [--strategy-hint <strategy>] [--artifact <name>] [--api <URI>] [--format strategy|dockerfile|debug-steps]",
 		Short: "Run inference",
 		Args:  cobra.NoArgs,
 		RunE: cli.RunE(
@@ -340,6 +342,7 @@ func flagSet(name string, cfg *Config) *flag.FlagSet {
 	set.StringVar(&cfg.Version, "version", "", "the version of the package")
 	set.StringVar(&cfg.Artifact, "artifact", "", "the artifact name")
 	set.StringVar(&cfg.RepoHint, "repo-hint", "", "a hint of the repository URL where the package is hosted")
+	set.StringVar(&cfg.StrategyHint, "strategy-hint", "", "forces the commit inference to use a specific heuristic (e.g., tag, registry, manifest, content)")
 	set.StringVar(&cfg.API, "api", "", "OSS Rebuild API endpoint URI")
 	set.StringVar(&cfg.Format, "format", "", "format of the output (strategy|strategy-or-status|dockerfile|debug-steps|shell-script)")
 	set.StringVar(&cfg.BootstrapBucket, "bootstrap-bucket", "", "the gcs bucket where bootstrap tools are stored")

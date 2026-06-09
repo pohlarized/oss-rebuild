@@ -135,7 +135,7 @@ func PickNPMVersion(meta *npmreg.NPMVersion) (string, error) {
 	return npmv, nil
 }
 
-func InferLocation(ctx context.Context, t rebuild.Target, mux rebuild.RegistryMux, vmeta *npmreg.NPMVersion, rcfg *rebuild.RepoConfig) (loc rebuild.Location, versionOverride string, err error) {
+func InferLocation(ctx context.Context, t rebuild.Target, mux rebuild.RegistryMux, vmeta *npmreg.NPMVersion, rcfg *rebuild.RepoConfig, hint *rebuild.LocationHint) (loc rebuild.Location, versionOverride string, err error) {
 	// Initialize location with repo URI from config
 	loc = rebuild.Location{
 		Repo: rcfg.URI,
@@ -150,11 +150,28 @@ func InferLocation(ctx context.Context, t rebuild.Target, mux rebuild.RegistryMu
 		loc.Dir = rcfg.Dir
 	}
 	// Determine git ref to rebuild
-	registryRef := vmeta.GitHEAD
-	pkgJSONGuess := rcfg.RefMap[t.Version]
-	tagGuess, err := rebuild.FindTagMatch(t.Package, t.Version, rcfg.Repository)
-	if err != nil {
-		return loc, "", errors.Wrapf(err, "[INTERNAL] tag heuristic error")
+	strategyHint := ""
+	if hint != nil {
+		strategyHint = hint.CommitInferenceStrategy
+	}
+
+	registryRef := ""
+	if strategyHint == "" || strategyHint == "registry" {
+		registryRef = vmeta.GitHEAD
+	}
+
+	pkgJSONGuess := ""
+	if strategyHint == "" || strategyHint == "manifest" {
+		pkgJSONGuess = rcfg.RefMap[t.Version]
+	}
+
+	var tagGuess string
+	if strategyHint == "" || strategyHint == "tag" {
+		var err error
+		tagGuess, err = rebuild.FindTagMatch(t.Package, t.Version, rcfg.Repository)
+		if err != nil {
+			return loc, "", errors.Wrapf(err, "[INTERNAL] tag heuristic error")
+		}
 	}
 	var c *object.Commit
 	var badVersionRef string
@@ -178,6 +195,9 @@ func InferLocation(ctx context.Context, t rebuild.Target, mux rebuild.RegistryMu
 		} else {
 			return loc, "", errors.Wrapf(err, "[INTERNAL] Failed ref resolve from registry [repo=%s,ref=%s]", rcfg.URI, registryRef)
 		}
+		if strategyHint == "registry" {
+			return loc, "", errors.Errorf("no git ref found using strategy %s", strategyHint)
+		}
 		fallthrough
 	case tagGuess != "":
 		c, err = rcfg.Repository.CommitObject(plumbing.NewHash(tagGuess))
@@ -198,6 +218,9 @@ func InferLocation(ctx context.Context, t rebuild.Target, mux rebuild.RegistryMu
 		} else {
 			return loc, "", errors.Wrapf(err, "[INTERNAL] Failed ref resolve from tag [repo=%s,ref=%s]", rcfg.URI, tagGuess)
 		}
+		if strategyHint == "tag" {
+			return loc, "", errors.Errorf("no git ref found using strategy %s", strategyHint)
+		}
 		fallthrough
 	case pkgJSONGuess != "":
 		c, err = rcfg.Repository.CommitObject(plumbing.NewHash(pkgJSONGuess))
@@ -217,9 +240,15 @@ func InferLocation(ctx context.Context, t rebuild.Target, mux rebuild.RegistryMu
 		} else {
 			return loc, "", errors.Wrapf(err, "[INTERNAL] Failed ref resolve from git log [repo=%s,ref=%s]", rcfg.URI, pkgJSONGuess)
 		}
+		if strategyHint == "manifest" {
+			return loc, "", errors.Errorf("no git ref found using strategy %s", strategyHint)
+		}
 		fallthrough
 	default:
-		commit, err := findClosestCommitToSource(ctx, t, mux, rcfg.Repository)
+		var commit *object.Commit
+		if strategyHint == "" || strategyHint == "content" {
+			commit, err = findClosestCommitToSource(ctx, t, mux, rcfg.Repository)
+		}
 		if err == nil && commit != nil {
 			commitHashHex := commit.Hash.String()
 			loc.Ref = commitHashHex
@@ -232,6 +261,8 @@ func InferLocation(ctx context.Context, t rebuild.Target, mux rebuild.RegistryMu
 				loc.Ref = badVersionRef
 				versionOverride = t.Version
 				return loc, versionOverride, nil
+			} else if strategyHint != "" {
+				return loc, "", errors.Errorf("no git ref found using strategy %s", strategyHint)
 			} else if registryRef == "" && tagGuess == "" && pkgJSONGuess == "" {
 				return loc, "", errors.Errorf("no git ref")
 			} else {
@@ -261,7 +292,7 @@ func (Rebuilder) InferStrategy(ctx context.Context, t rebuild.Target, mux rebuil
 			loc.Dir = lh.Dir
 		}
 	} else {
-		loc, versionOverride, err = InferLocation(ctx, t, mux, vmeta, rcfg)
+		loc, versionOverride, err = InferLocation(ctx, t, mux, vmeta, rcfg, lh)
 		if err != nil {
 			return nil, err
 		}

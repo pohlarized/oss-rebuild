@@ -92,6 +92,7 @@ type Strategy interface {
 // LocationHint is a partial strategy used to provide a hint (git repo, git ref) to the inference machinery, but it is not sufficient for execution.
 type LocationHint struct {
 	Location
+	CommitInferenceStrategy string `json:"commit_inference_strategy,omitempty" yaml:"commit_inference_strategy,omitempty"`
 }
 
 // GenerateFor is unsupported for LocationHint.

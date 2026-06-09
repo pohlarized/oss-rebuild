@@ -157,57 +157,75 @@ func validateCommitCandidate(commitCandidate string, rcfg *rebuild.RepoConfig, h
 	return true, nil
 }
 
-func findGitRef(ctx context.Context, target rebuild.Target, mux rebuild.RegistryMux, pkg string, version string, rcfg *rebuild.RepoConfig) (string, error) {
+func findGitRef(ctx context.Context, target rebuild.Target, mux rebuild.RegistryMux, pkg string, version string, rcfg *rebuild.RepoConfig, hint *rebuild.LocationHint) (string, error) {
+	strategyHint := ""
+	if hint != nil {
+		strategyHint = hint.CommitInferenceStrategy
+	}
+
+	if strategyHint == "registry" {
+		return "", errors.Errorf("no git ref found using strategy %s", strategyHint)
+	}
+
 	// 1. tag heuristic, fast
-	tagHeuristic, err := rebuild.FindTagMatch(pkg, version, rcfg.Repository)
-	log.Printf("Version: %s, tag hash: \"%s\"", version, tagHeuristic)
-	if err != nil {
-		return "", errors.Wrapf(err, "[INTERNAL] tag heuristic error")
-	}
-	valid, err := validateCommitCandidate(tagHeuristic, rcfg, "tag")
-	if err != nil {
-		return "", err
-	}
-	if valid {
-		log.Printf("PyPI Returning result from tag heuristic.")
-		return tagHeuristic, nil
+	if strategyHint == "" || strategyHint == "tag" {
+		tagHeuristic, err := rebuild.FindTagMatch(pkg, version, rcfg.Repository)
+		log.Printf("Version: %s, tag hash: \"%s\"", version, tagHeuristic)
+		if err != nil {
+			return "", errors.Wrapf(err, "[INTERNAL] tag heuristic error")
+		}
+		valid, err := validateCommitCandidate(tagHeuristic, rcfg, "tag")
+		if err != nil {
+			return "", err
+		}
+		if valid {
+			log.Printf("PyPI Returning result from tag heuristic.")
+			return tagHeuristic, nil
+		}
 	}
 
 	// 2. commit file hash overlap, no file parsing, only hash comparisons
-	closestCommit, err := findClosestCommitToSource(ctx, target, mux, rcfg.Repository)
-	if err != nil {
-		return "", errors.Wrapf(err, "[INTERNAL] commit overlap heuristic error")
-	}
-	commitHeuristic := closestCommit.Hash.String()
-	valid, err = validateCommitCandidate(commitHeuristic, rcfg, "commit")
-	if err != nil {
-		return "", err
-	}
-	if valid {
-		log.Printf("PyPI Returning result from commit heuristic.")
-		return commitHeuristic, nil
+	if strategyHint == "" || strategyHint == "content" {
+		closestCommit, err := findClosestCommitToSource(ctx, target, mux, rcfg.Repository)
+		if err != nil {
+			return "", errors.Wrapf(err, "[INTERNAL] commit overlap heuristic error")
+		}
+		commitHeuristic := closestCommit.Hash.String()
+		valid, err := validateCommitCandidate(commitHeuristic, rcfg, "commit")
+		if err != nil {
+			return "", err
+		}
+		if valid {
+			log.Printf("PyPI Returning result from commit heuristic.")
+			return commitHeuristic, nil
+		}
 	}
 
 	// 3. Find version switch in pyproject.toml.
 	// May parse a pyproject.toml file for every commit and might thus be very slow.
-	log.Printf("Building pyproject.toml version map, this may take a while.")
-	pkgPath, err := findPyprojectToml(ctx, target, rcfg.Repository)
-	if err == nil {
-		refMap, err := pyprojectTomlSearch(target.Package, pkgPath, rcfg.Repository)
+	if strategyHint == "" || strategyHint == "manifest" {
+		log.Printf("Building pyproject.toml version map, this may take a while.")
+		pkgPath, err := findPyprojectToml(ctx, target, rcfg.Repository)
 		if err == nil {
-			rcfg.RefMap = refMap
+			refMap, err := pyprojectTomlSearch(target.Package, pkgPath, rcfg.Repository)
+			if err == nil {
+				rcfg.RefMap = refMap
+			}
+		}
+		manifestHeuristic := rcfg.RefMap[target.Version]
+		valid, err := validateCommitCandidate(manifestHeuristic, rcfg, "manifest")
+		if err != nil {
+			return "", err
+		}
+		if valid {
+			log.Printf("PyPI Returning result from manifest heuristic.")
+			return manifestHeuristic, nil
 		}
 	}
-	manifestHeuristic := rcfg.RefMap[target.Version]
-	valid, err = validateCommitCandidate(manifestHeuristic, rcfg, "manifest")
-	if err != nil {
-		return "", err
-	}
-	if valid {
-		log.Printf("PyPI Returning result from manifest heuristic.")
-		return manifestHeuristic, nil
-	}
 
+	if strategyHint != "" {
+		return "", errors.Errorf("no git ref found using strategy %s", strategyHint)
+	}
 	// None of the heuristics matched
 	return "", errors.New("no git ref")
 }
@@ -397,7 +415,7 @@ func (Rebuilder) InferStrategy(ctx context.Context, t rebuild.Target, mux rebuil
 			dir = rcfg.Dir
 		}
 	} else {
-		ref, err = findGitRef(ctx, t, mux, release.Name, version, rcfg)
+		ref, err = findGitRef(ctx, t, mux, release.Name, version, rcfg, lh)
 		if err != nil {
 			return cfg, err
 		}
