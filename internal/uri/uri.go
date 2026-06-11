@@ -48,6 +48,9 @@ func CanonicalizeRepoURI(uri string) (string, error) {
 	}
 	u.Scheme = "https"
 	u.Host = strings.ToLower(u.Host)
+	if strings.HasPrefix(u.Host, "localhost") {
+		u.Scheme = "http"
+	}
 	if strings.HasSuffix(u.Path, "/.") || strings.HasSuffix(u.Path, "/..") {
 		return "", errors.Wrap(errUnsupportedRepo, uri)
 	}
