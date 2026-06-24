@@ -59,25 +59,6 @@ func (Rebuilder) CloneRepo(ctx context.Context, t rebuild.Target, repoURI string
 	default:
 		return r, errors.Wrapf(err, "clone failed [repo=%s]", r.URI)
 	}
-	// Do package.json search.
-	head, err := r.Repository.Head()
-	if err != nil {
-		return r, errors.Wrapf(err, "resolving HEAD [repo=%s]", r.URI)
-	}
-	c, err := r.Repository.CommitObject(head.Hash())
-	if err != nil {
-		return r, errors.Wrapf(err, "resolving HEAD commit [repo=%s]", r.URI)
-	}
-	_, pkgPath, err := findPackageJSON(r.Repository, c, t.Package)
-	if err != nil {
-		log.Printf("package.json path heuristic failed [pkg=%s,repo=%s]: %s\n", t.Package, r.URI, err.Error())
-	}
-	r.Dir = rebuild.DirOf(pkgPath)
-	// Do version heuristic search.
-	r.RefMap, err = pkgJSONSearch(t.Package, pkgPath, r.Repository)
-	if err != nil {
-		log.Printf("package.json version heuristic failed [pkg=%s,repo=%s]: %s\n", t.Package, r.URI, err.Error())
-	}
 	return r, nil
 }
 
@@ -140,45 +121,27 @@ func InferLocation(ctx context.Context, t rebuild.Target, mux rebuild.RegistryMu
 	loc = rebuild.Location{
 		Repo: rcfg.URI,
 	}
-	// Determine dir for build
-	if vmeta.Directory != "" {
-		if rcfg.Dir != "" && rcfg.Dir != vmeta.Directory {
-			log.Printf("package.json path disagreement [metadata=%s,heuristic=%s]\n", vmeta.Directory, rcfg.Dir)
-		}
-		loc.Dir = vmeta.Directory
-	} else {
-		loc.Dir = rcfg.Dir
-	}
-	// Determine git ref to rebuild
+	loc.Dir = "."
+
+	// Determine whether we have a hint to select the strategy
 	strategyHint := ""
 	if hint != nil {
 		strategyHint = hint.CommitInferenceStrategy
 	}
 
+	// TODO: move the return of the refs to the respective strategy blocks.
+
+	var c *object.Commit
+	var badVersionRef string
+
+	// 1. use ref given in the npm registry, essentially free since we just copy it from the
+	// metadata we already have.
 	registryRef := ""
 	if strategyHint == "" || strategyHint == "registry" {
 		registryRef = vmeta.GitHEAD
-	}
-
-	pkgJSONGuess := ""
-	if strategyHint == "" || strategyHint == "manifest" {
-		pkgJSONGuess = rcfg.RefMap[t.Version]
-	}
-
-	var tagGuess string
-	if strategyHint == "" || strategyHint == "tag" {
-		var err error
-		tagGuess, err = rebuild.FindTagMatch(t.Package, t.Version, rcfg.Repository)
-		if err != nil {
-			return loc, "", errors.Wrapf(err, "[INTERNAL] tag heuristic error")
-		}
-	}
-	var c *object.Commit
-	var badVersionRef string
-	switch {
-	case registryRef != "":
 		c, err = rcfg.Repository.CommitObject(plumbing.NewHash(registryRef))
-		if err == nil {
+		switch err {
+		case nil:
 			if newPath, err := findAndValidatePackageJSON(rcfg.Repository, c, t.Package, t.Version, loc.Dir); err != nil {
 				log.Printf("registry ref invalid: %v", err)
 				if strings.HasPrefix(err.Error(), "mismatched version") {
@@ -190,18 +153,28 @@ func InferLocation(ctx context.Context, t rebuild.Target, mux rebuild.RegistryMu
 				loc.Dir = rebuild.DirOf(newPath)
 				return loc, "", nil
 			}
-		} else if err == plumbing.ErrObjectNotFound {
+		case plumbing.ErrObjectNotFound:
 			log.Printf("registry ref not found in repo")
-		} else {
+		default:
 			return loc, "", errors.Wrapf(err, "[INTERNAL] Failed ref resolve from registry [repo=%s,ref=%s]", rcfg.URI, registryRef)
 		}
 		if strategyHint == "registry" {
 			return loc, "", errors.Errorf("no git ref found using strategy %s", strategyHint)
 		}
-		fallthrough
-	case tagGuess != "":
+	}
+
+	// 2. use a tag guess, this is fast since we just perform a regex match over the tags that are
+	// present in the git repo, which is usually a manageably small amount
+	var tagGuess string
+	if strategyHint == "" || strategyHint == "tag" {
+		var err error
+		tagGuess, err = rebuild.FindTagMatch(t.Package, t.Version, rcfg.Repository)
+		if err != nil {
+			return loc, "", errors.Wrapf(err, "[INTERNAL] tag heuristic error")
+		}
 		c, err = rcfg.Repository.CommitObject(plumbing.NewHash(tagGuess))
-		if err == nil {
+		switch err {
+		case nil:
 			if newPath, err := findAndValidatePackageJSON(rcfg.Repository, c, t.Package, t.Version, loc.Dir); err != nil {
 				log.Printf("registry heuristic tag invalid: %v", err)
 				if strings.HasPrefix(err.Error(), "mismatched version") {
@@ -213,18 +186,43 @@ func InferLocation(ctx context.Context, t rebuild.Target, mux rebuild.RegistryMu
 				loc.Dir = rebuild.DirOf(newPath)
 				return loc, "", nil
 			}
-		} else if err == plumbing.ErrObjectNotFound {
+		case plumbing.ErrObjectNotFound:
 			log.Printf("tag heuristic ref not found in repo")
-		} else {
+		default:
 			return loc, "", errors.Wrapf(err, "[INTERNAL] Failed ref resolve from tag [repo=%s,ref=%s]", rcfg.URI, tagGuess)
 		}
 		if strategyHint == "tag" {
 			return loc, "", errors.Errorf("no git ref found using strategy %s", strategyHint)
 		}
-		fallthrough
-	case pkgJSONGuess != "":
+	}
+
+	// 3. find a version switch in the package.json
+	// May parse a package.json file for every commit and might thus be very slow
+	pkgJSONGuess := ""
+	if strategyHint == "" || strategyHint == "manifest" {
+		// Do package.json search.
+		head, err := rcfg.Repository.Head()
+		if err != nil {
+			return loc, "", errors.Wrapf(err, "resolving HEAD [repo=%s]", rcfg.URI)
+		}
+		c, err := rcfg.Repository.CommitObject(head.Hash())
+		if err != nil {
+			return loc, "", errors.Wrapf(err, "resolving HEAD commit [repo=%s]", rcfg.URI)
+		}
+		_, pkgPath, err := findPackageJSON(rcfg.Repository, c, t.Package)
+		if err != nil {
+			log.Printf("package.json path heuristic failed [pkg=%s,repo=%s]: %s\n", t.Package, rcfg.URI, err.Error())
+		}
+		rcfg.Dir = rebuild.DirOf(pkgPath)
+		// Do version heuristic search.
+		rcfg.RefMap, err = pkgJSONSearch(t.Package, pkgPath, rcfg.Repository)
+		if err != nil {
+			log.Printf("package.json version heuristic failed [pkg=%s,repo=%s]: %s\n", t.Package, rcfg.URI, err.Error())
+		}
+		pkgJSONGuess = rcfg.RefMap[t.Version]
 		c, err = rcfg.Repository.CommitObject(plumbing.NewHash(pkgJSONGuess))
-		if err == nil {
+		switch err {
+		case nil:
 			if newPath, err := findAndValidatePackageJSON(rcfg.Repository, c, t.Package, t.Version, loc.Dir); err != nil {
 				log.Printf("registry heuristic git log invalid: %v", err)
 				// NOTE: Omit badVersionRef default since the existing heuristic should
@@ -235,41 +233,41 @@ func InferLocation(ctx context.Context, t rebuild.Target, mux rebuild.RegistryMu
 				loc.Dir = rebuild.DirOf(newPath)
 				return loc, "", nil
 			}
-		} else if err == plumbing.ErrObjectNotFound {
+		case plumbing.ErrObjectNotFound:
 			log.Printf("git log heuristic ref not found in repo")
-		} else {
+		default:
 			return loc, "", errors.Wrapf(err, "[INTERNAL] Failed ref resolve from git log [repo=%s,ref=%s]", rcfg.URI, pkgJSONGuess)
 		}
 		if strategyHint == "manifest" {
 			return loc, "", errors.Errorf("no git ref found using strategy %s", strategyHint)
 		}
-		fallthrough
-	default:
-		var commit *object.Commit
-		if strategyHint == "" || strategyHint == "content" {
-			commit, err = findClosestCommitToSource(ctx, t, mux, rcfg.Repository)
-		}
-		if err == nil && commit != nil {
-			commitHashHex := commit.Hash.String()
-			loc.Ref = commitHashHex
-			return loc, "", nil
+	}
+
+	// 4. and default: commit file hash overlap, no file parsing, only hash comparisons
+	if strategyHint == "" || strategyHint == "content" {
+		c, err = findClosestCommitToSource(ctx, t, mux, rcfg.Repository)
+	}
+	if err == nil && c != nil {
+		commitHashHex := c.Hash.String()
+		loc.Ref = commitHashHex
+		return loc, "", nil
+	} else {
+		log.Printf("Failed to use closest commit as ref: %s", err)
+		if badVersionRef != "" {
+			log.Printf("using version override recovery: %s", badVersionRef[:9])
+			c, _ = rcfg.Repository.CommitObject(plumbing.NewHash(badVersionRef))
+			loc.Ref = badVersionRef
+			versionOverride = t.Version
+			return loc, versionOverride, nil
+		} else if strategyHint != "" {
+			return loc, "", errors.Errorf("no git ref found using strategy %s", strategyHint)
+		} else if registryRef == "" && tagGuess == "" && pkgJSONGuess == "" {
+			return loc, "", errors.Errorf("no git ref")
 		} else {
-			log.Printf("Failed to use closest commit as ref: %s", err)
-			if badVersionRef != "" {
-				log.Printf("using version override recovery: %s", badVersionRef[:9])
-				c, _ = rcfg.Repository.CommitObject(plumbing.NewHash(badVersionRef))
-				loc.Ref = badVersionRef
-				versionOverride = t.Version
-				return loc, versionOverride, nil
-			} else if strategyHint != "" {
-				return loc, "", errors.Errorf("no git ref found using strategy %s", strategyHint)
-			} else if registryRef == "" && tagGuess == "" && pkgJSONGuess == "" {
-				return loc, "", errors.Errorf("no git ref")
-			} else {
-				return loc, "", errors.Errorf("no valid git ref")
-			}
+			return loc, "", errors.Errorf("no valid git ref")
 		}
 	}
+
 }
 
 func (Rebuilder) InferStrategy(ctx context.Context, t rebuild.Target, mux rebuild.RegistryMux, rcfg *rebuild.RepoConfig, hint rebuild.Strategy) (rebuild.Strategy, error) {
