@@ -132,7 +132,6 @@ func InferLocation(ctx context.Context, t rebuild.Target, mux rebuild.RegistryMu
 	// TODO: move the return of the refs to the respective strategy blocks.
 
 	var c *object.Commit
-	var badVersionRef string
 
 	// 1. use ref given in the npm registry, essentially free since we just copy it from the
 	// metadata we already have.
@@ -142,17 +141,9 @@ func InferLocation(ctx context.Context, t rebuild.Target, mux rebuild.RegistryMu
 		c, err = rcfg.Repository.CommitObject(plumbing.NewHash(registryRef))
 		switch err {
 		case nil:
-			if newPath, err := findAndValidatePackageJSON(rcfg.Repository, c, t.Package, t.Version, loc.Dir); err != nil {
-				log.Printf("registry ref invalid: %v", err)
-				if strings.HasPrefix(err.Error(), "mismatched version") {
-					badVersionRef = registryRef
-				}
-			} else {
-				log.Printf("using registry ref: %s", registryRef[:9])
-				loc.Ref = registryRef
-				loc.Dir = rebuild.DirOf(newPath)
-				return loc, "", nil
-			}
+			log.Printf("using registry ref: %s", registryRef[:9])
+			loc.Ref = registryRef
+			return loc, "", nil
 		case plumbing.ErrObjectNotFound:
 			log.Printf("registry ref not found in repo")
 		default:
@@ -175,17 +166,9 @@ func InferLocation(ctx context.Context, t rebuild.Target, mux rebuild.RegistryMu
 		c, err = rcfg.Repository.CommitObject(plumbing.NewHash(tagGuess))
 		switch err {
 		case nil:
-			if newPath, err := findAndValidatePackageJSON(rcfg.Repository, c, t.Package, t.Version, loc.Dir); err != nil {
-				log.Printf("registry heuristic tag invalid: %v", err)
-				if strings.HasPrefix(err.Error(), "mismatched version") {
-					badVersionRef = tagGuess
-				}
-			} else {
-				log.Printf("using tag heuristic ref: %s", tagGuess[:9])
-				loc.Ref = tagGuess
-				loc.Dir = rebuild.DirOf(newPath)
-				return loc, "", nil
-			}
+			log.Printf("using tag heuristic ref: %s", tagGuess[:9])
+			loc.Ref = tagGuess
+			return loc, "", nil
 		case plumbing.ErrObjectNotFound:
 			log.Printf("tag heuristic ref not found in repo")
 		default:
@@ -223,16 +206,9 @@ func InferLocation(ctx context.Context, t rebuild.Target, mux rebuild.RegistryMu
 		c, err = rcfg.Repository.CommitObject(plumbing.NewHash(pkgJSONGuess))
 		switch err {
 		case nil:
-			if newPath, err := findAndValidatePackageJSON(rcfg.Repository, c, t.Package, t.Version, loc.Dir); err != nil {
-				log.Printf("registry heuristic git log invalid: %v", err)
-				// NOTE: Omit badVersionRef default since the existing heuristic should
-				// never select a ref with the version mismatch.
-			} else {
-				log.Printf("using git log heuristic ref: %s", pkgJSONGuess[:9])
-				loc.Ref = pkgJSONGuess
-				loc.Dir = rebuild.DirOf(newPath)
-				return loc, "", nil
-			}
+			log.Printf("using git log heuristic ref: %s", pkgJSONGuess[:9])
+			loc.Ref = pkgJSONGuess
+			return loc, "", nil
 		case plumbing.ErrObjectNotFound:
 			log.Printf("git log heuristic ref not found in repo")
 		default:
@@ -253,13 +229,7 @@ func InferLocation(ctx context.Context, t rebuild.Target, mux rebuild.RegistryMu
 		return loc, "", nil
 	} else {
 		log.Printf("Failed to use closest commit as ref: %s", err)
-		if badVersionRef != "" {
-			log.Printf("using version override recovery: %s", badVersionRef[:9])
-			c, _ = rcfg.Repository.CommitObject(plumbing.NewHash(badVersionRef))
-			loc.Ref = badVersionRef
-			versionOverride = t.Version
-			return loc, versionOverride, nil
-		} else if strategyHint != "" {
+		if strategyHint != "" {
 			return loc, "", errors.Errorf("no git ref found using strategy %s", strategyHint)
 		} else if registryRef == "" && tagGuess == "" && pkgJSONGuess == "" {
 			return loc, "", errors.Errorf("no git ref")
