@@ -32,7 +32,7 @@ func FindClosestCommitToSource(ctx context.Context, repo *git.Repository, source
 		// No matches found so we will not use the commit file overlap heuristic, but this is not an error.
 		// The caller should try other heuristics.
 		log.Printf("no matching commit found using commit file overlap heuristics")
-		return nil, nil
+		return nil, errors.Errorf("no git ref found using closest commit to source strategy")
 	}
 	// TODO: use a better heuristic here like using commit time
 	commitString := closest[0]

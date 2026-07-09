@@ -138,20 +138,9 @@ func InferLocation(ctx context.Context, t rebuild.Target, mux rebuild.RegistryMu
 	registryRef := ""
 	if strategyHint == "" || strategyHint == "registry" {
 		registryRef = vmeta.GitHEAD
-		c, err = rcfg.Repository.CommitObject(plumbing.NewHash(registryRef))
-		switch err {
-		case nil:
-			log.Printf("using registry ref: %s", registryRef[:9])
-			loc.Ref = registryRef
-			return loc, "", nil
-		case plumbing.ErrObjectNotFound:
-			log.Printf("registry ref not found in repo")
-		default:
-			return loc, "", errors.Wrapf(err, "[INTERNAL] Failed ref resolve from registry [repo=%s,ref=%s]", rcfg.URI, registryRef)
-		}
-		if strategyHint == "registry" {
-			return loc, "", errors.Errorf("no git ref found using strategy %s", strategyHint)
-		}
+		log.Printf("using registry ref: %s", registryRef[:9])
+		loc.Ref = registryRef
+		return loc, "", nil
 	}
 
 	// 2. use a tag guess, this is fast since we just perform a regex match over the tags that are
@@ -163,20 +152,9 @@ func InferLocation(ctx context.Context, t rebuild.Target, mux rebuild.RegistryMu
 		if err != nil {
 			return loc, "", errors.Wrapf(err, "[INTERNAL] tag heuristic error")
 		}
-		c, err = rcfg.Repository.CommitObject(plumbing.NewHash(tagGuess))
-		switch err {
-		case nil:
-			log.Printf("using tag heuristic ref: %s", tagGuess[:9])
-			loc.Ref = tagGuess
-			return loc, "", nil
-		case plumbing.ErrObjectNotFound:
-			log.Printf("tag heuristic ref not found in repo")
-		default:
-			return loc, "", errors.Wrapf(err, "[INTERNAL] Failed ref resolve from tag [repo=%s,ref=%s]", rcfg.URI, tagGuess)
-		}
-		if strategyHint == "tag" {
-			return loc, "", errors.Errorf("no git ref found using strategy %s", strategyHint)
-		}
+		log.Printf("using tag heuristic ref: %s", tagGuess[:9])
+		loc.Ref = tagGuess
+		return loc, "", nil
 	}
 
 	// 3. find a version switch in the package.json
@@ -203,27 +181,16 @@ func InferLocation(ctx context.Context, t rebuild.Target, mux rebuild.RegistryMu
 			log.Printf("package.json version heuristic failed [pkg=%s,repo=%s]: %s\n", t.Package, rcfg.URI, err.Error())
 		}
 		pkgJSONGuess = rcfg.RefMap[t.Version]
-		c, err = rcfg.Repository.CommitObject(plumbing.NewHash(pkgJSONGuess))
-		switch err {
-		case nil:
-			log.Printf("using git log heuristic ref: %s", pkgJSONGuess[:9])
-			loc.Ref = pkgJSONGuess
-			return loc, "", nil
-		case plumbing.ErrObjectNotFound:
-			log.Printf("git log heuristic ref not found in repo")
-		default:
-			return loc, "", errors.Wrapf(err, "[INTERNAL] Failed ref resolve from git log [repo=%s,ref=%s]", rcfg.URI, pkgJSONGuess)
-		}
-		if strategyHint == "manifest" {
-			return loc, "", errors.Errorf("no git ref found using strategy %s", strategyHint)
-		}
+		log.Printf("using git log heuristic ref: %s", pkgJSONGuess[:9])
+		loc.Ref = pkgJSONGuess
+		return loc, "", nil
 	}
 
 	// 4. and default: commit file hash overlap, no file parsing, only hash comparisons
 	if strategyHint == "" || strategyHint == "content" {
 		c, err = findClosestCommitToSource(ctx, t, mux, rcfg.Repository)
 	}
-	if err == nil && c != nil {
+	if err == nil {
 		commitHashHex := c.Hash.String()
 		loc.Ref = commitHashHex
 		return loc, "", nil
