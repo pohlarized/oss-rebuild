@@ -116,6 +116,23 @@ func PickNPMVersion(meta *npmreg.NPMVersion) (string, error) {
 	return npmv, nil
 }
 
+func validateCommitCandidate(commitCandidate string, rcfg *rebuild.RepoConfig, heuristicName string) (bool, error) {
+	if commitCandidate == "" {
+		log.Printf("Got empty commit for %s.", heuristicName)
+		return false, nil
+	}
+	_, err := rcfg.Repository.CommitObject(plumbing.NewHash(commitCandidate))
+	if err != nil {
+		switch err {
+		case plumbing.ErrObjectNotFound:
+			return false, errors.Errorf("[INTERNAL] Commit ref from %s heuristic not found in repo [repo=%s,ref=%s]", heuristicName, rcfg.URI, commitCandidate)
+		default:
+			return false, errors.Wrapf(err, "Checkout failed [repo=%s,ref=%s]", rcfg.URI, commitCandidate)
+		}
+	}
+	return true, nil
+}
+
 func InferLocation(ctx context.Context, t rebuild.Target, mux rebuild.RegistryMux, vmeta *npmreg.NPMVersion, rcfg *rebuild.RepoConfig, hint *rebuild.LocationHint) (loc rebuild.Location, versionOverride string, err error) {
 	// Initialize location with repo URI from config
 	loc = rebuild.Location{
@@ -129,8 +146,6 @@ func InferLocation(ctx context.Context, t rebuild.Target, mux rebuild.RegistryMu
 		strategyHint = hint.CommitInferenceStrategy
 	}
 
-	// TODO: move the return of the refs to the respective strategy blocks.
-
 	var c *object.Commit
 
 	// 1. use ref given in the npm registry, essentially free since we just copy it from the
@@ -138,6 +153,12 @@ func InferLocation(ctx context.Context, t rebuild.Target, mux rebuild.RegistryMu
 	registryRef := ""
 	if strategyHint == "" || strategyHint == "registry" {
 		registryRef = vmeta.GitHEAD
+		valid, err := validateCommitCandidate(registryRef, rcfg, strategyHint)
+		if err != nil {
+			return loc, "", err
+		} else if !valid {
+			return loc, "", errors.Errorf("no git ref found using strategy %s", strategyHint)
+		}
 		log.Printf("using registry ref: %s", registryRef[:9])
 		loc.Ref = registryRef
 		return loc, "", nil
@@ -151,6 +172,12 @@ func InferLocation(ctx context.Context, t rebuild.Target, mux rebuild.RegistryMu
 		tagGuess, err = rebuild.FindTagMatch(t.Package, t.Version, rcfg.Repository)
 		if err != nil {
 			return loc, "", errors.Wrapf(err, "[INTERNAL] tag heuristic error")
+		}
+		valid, err := validateCommitCandidate(tagGuess, rcfg, strategyHint)
+		if err != nil {
+			return loc, "", err
+		} else if !valid {
+			return loc, "", errors.Errorf("no git ref found using strategy %s", strategyHint)
 		}
 		log.Printf("using tag heuristic ref: %s", tagGuess[:9])
 		loc.Ref = tagGuess
@@ -181,6 +208,12 @@ func InferLocation(ctx context.Context, t rebuild.Target, mux rebuild.RegistryMu
 			log.Printf("package.json version heuristic failed [pkg=%s,repo=%s]: %s\n", t.Package, rcfg.URI, err.Error())
 		}
 		pkgJSONGuess = rcfg.RefMap[t.Version]
+		valid, err := validateCommitCandidate(pkgJSONGuess, rcfg, strategyHint)
+		if err != nil {
+			return loc, "", err
+		} else if !valid {
+			return loc, "", errors.Errorf("no git ref found using strategy %s", strategyHint)
+		}
 		log.Printf("using git log heuristic ref: %s", pkgJSONGuess[:9])
 		loc.Ref = pkgJSONGuess
 		return loc, "", nil
@@ -192,6 +225,12 @@ func InferLocation(ctx context.Context, t rebuild.Target, mux rebuild.RegistryMu
 	}
 	if err == nil {
 		commitHashHex := c.Hash.String()
+		valid, err := validateCommitCandidate(commitHashHex, rcfg, strategyHint)
+		if err != nil {
+			return loc, "", err
+		} else if !valid {
+			return loc, "", errors.Errorf("no git ref found using strategy %s", strategyHint)
+		}
 		loc.Ref = commitHashHex
 		return loc, "", nil
 	} else {
