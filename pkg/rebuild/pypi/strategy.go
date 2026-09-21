@@ -361,7 +361,17 @@ var toolkit = []*flow.Tool{
 				{{end -}}
 				{{if .With.targetPlatformTag -}}
 				{{.With.locator}}python3 -m wheel tags --remove --platform-tag {{.With.targetPlatformTag}} {{.With.distDir}}/*.whl
-				{{- end -}}`)[1:],
+				{{end -}}
+				# Note: If the input wheel has unordered tags, python -m wheel tags canonicalizes
+				# the tag order in both the filename and dist-info/WHEEL. Renaming the output wheel
+				# ensures it matches the target artifact name expected by build planners, but this
+				# leads to irreproducible builds if the input wheel has unordered tags.
+				for f in {{.With.distDir}}/*.whl; do
+				  if [ -f "$f" ] && [ "$(basename "$f")" != "{{.Target.Artifact}}" ]; then
+				    mv "$f" "{{.With.distDir}}/{{.Target.Artifact}}"
+				  fi
+				  break
+				done`)[1:],
 		}},
 	},
 }

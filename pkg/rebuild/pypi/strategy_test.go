@@ -371,7 +371,17 @@ if $AUDITWHEEL repair the_dir/dist/*.whl --plat manylinux_2_17_x86_64 -w the_dir
   mv the_dir/dist/repaired/*.whl the_dir/dist/
 fi
 rm -rf the_dir/dist/repaired
-/deps/bin/python3 -m wheel tags --remove --platform-tag manylinux_2_17_x86_64 the_dir/dist/*.whl`,
+/deps/bin/python3 -m wheel tags --remove --platform-tag manylinux_2_17_x86_64 the_dir/dist/*.whl
+# Note: If the input wheel has unordered tags, python -m wheel tags canonicalizes
+# the tag order in both the filename and dist-info/WHEEL. Renaming the output wheel
+# ensures it matches the target artifact name expected by build planners, but this
+# leads to irreproducible builds if the input wheel has unordered tags.
+for f in the_dir/dist/*.whl; do
+  if [ -f "$f" ] && [ "$(basename "$f")" != "the_artifact" ]; then
+    mv "$f" "the_dir/dist/the_artifact"
+  fi
+  break
+done`,
 				Requires: rebuild.RequiredEnv{
 					BaseImage:  "quay.io/pypa/manylinux2014_x86_64",
 					SystemDeps: []string{"git"},
@@ -430,7 +440,17 @@ if $AUDITWHEEL repair the_dir/dist/*.whl --plat manylinux_2_17_x86_64 -w the_dir
   mv the_dir/dist/repaired/*.whl the_dir/dist/
 fi
 rm -rf the_dir/dist/repaired
-/deps/bin/python3 -m wheel tags --remove --platform-tag manylinux_2_17_x86_64 the_dir/dist/*.whl`,
+/deps/bin/python3 -m wheel tags --remove --platform-tag manylinux_2_17_x86_64 the_dir/dist/*.whl
+# Note: If the input wheel has unordered tags, python -m wheel tags canonicalizes
+# the tag order in both the filename and dist-info/WHEEL. Renaming the output wheel
+# ensures it matches the target artifact name expected by build planners, but this
+# leads to irreproducible builds if the input wheel has unordered tags.
+for f in the_dir/dist/*.whl; do
+  if [ -f "$f" ] && [ "$(basename "$f")" != "the_artifact" ]; then
+    mv "$f" "the_dir/dist/the_artifact"
+  fi
+  break
+done`,
 				Requires: rebuild.RequiredEnv{
 					BaseImage:  "quay.io/pypa/manylinux2014_x86_64",
 					SystemDeps: []string{"git"},
@@ -487,7 +507,17 @@ if $AUDITWHEEL repair the_dir/dist/*.whl --plat manylinux_2_17_x86_64 -w the_dir
   mv the_dir/dist/repaired/*.whl the_dir/dist/
 fi
 rm -rf the_dir/dist/repaired
-/deps/bin/python3 -m wheel tags --remove --platform-tag manylinux_2_17_x86_64 the_dir/dist/*.whl`,
+/deps/bin/python3 -m wheel tags --remove --platform-tag manylinux_2_17_x86_64 the_dir/dist/*.whl
+# Note: If the input wheel has unordered tags, python -m wheel tags canonicalizes
+# the tag order in both the filename and dist-info/WHEEL. Renaming the output wheel
+# ensures it matches the target artifact name expected by build planners, but this
+# leads to irreproducible builds if the input wheel has unordered tags.
+for f in the_dir/dist/*.whl; do
+  if [ -f "$f" ] && [ "$(basename "$f")" != "the_artifact" ]; then
+    mv "$f" "the_dir/dist/the_artifact"
+  fi
+  break
+done`,
 				Requires: rebuild.RequiredEnv{
 					BaseImage:  "quay.io/pypa/manylinux2014_x86_64",
 					SystemDeps: []string{"git"},
@@ -544,7 +574,17 @@ if $AUDITWHEEL repair the_dir/dist/*.whl --plat manylinux_2_17_x86_64 -w the_dir
   mv the_dir/dist/repaired/*.whl the_dir/dist/
 fi
 rm -rf the_dir/dist/repaired
-/deps/bin/python3 -m wheel tags --remove --platform-tag manylinux_2_17_x86_64 the_dir/dist/*.whl`,
+/deps/bin/python3 -m wheel tags --remove --platform-tag manylinux_2_17_x86_64 the_dir/dist/*.whl
+# Note: If the input wheel has unordered tags, python -m wheel tags canonicalizes
+# the tag order in both the filename and dist-info/WHEEL. Renaming the output wheel
+# ensures it matches the target artifact name expected by build planners, but this
+# leads to irreproducible builds if the input wheel has unordered tags.
+for f in the_dir/dist/*.whl; do
+  if [ -f "$f" ] && [ "$(basename "$f")" != "the_artifact" ]; then
+    mv "$f" "the_dir/dist/the_artifact"
+  fi
+  break
+done`,
 				Requires: rebuild.RequiredEnv{
 					BaseImage:  "quay.io/pypa/manylinux2014_x86_64",
 					SystemDeps: []string{"git"},
@@ -599,7 +639,17 @@ if $AUDITWHEEL repair dist/*.whl --plat manylinux_2_17_x86_64 -w dist/repaired/;
   mv dist/repaired/*.whl dist/
 fi
 rm -rf dist/repaired
-/deps/bin/python3 -m wheel tags --remove --platform-tag manylinux_2_17_x86_64 dist/*.whl`,
+/deps/bin/python3 -m wheel tags --remove --platform-tag manylinux_2_17_x86_64 dist/*.whl
+# Note: If the input wheel has unordered tags, python -m wheel tags canonicalizes
+# the tag order in both the filename and dist-info/WHEEL. Renaming the output wheel
+# ensures it matches the target artifact name expected by build planners, but this
+# leads to irreproducible builds if the input wheel has unordered tags.
+for f in dist/*.whl; do
+  if [ -f "$f" ] && [ "$(basename "$f")" != "the_artifact" ]; then
+    mv "$f" "dist/the_artifact"
+  fi
+  break
+done`,
 				Requires: rebuild.RequiredEnv{
 					BaseImage:  "quay.io/pypa/manylinux2014_x86_64",
 					SystemDeps: []string{"git"},
@@ -656,7 +706,17 @@ if $AUDITWHEEL repair the_dir/dist/*.whl --plat manylinux1_x86_64 -w the_dir/dis
   mv the_dir/dist/repaired/*.whl the_dir/dist/
 fi
 rm -rf the_dir/dist/repaired
-/deps/bin/python3 -m wheel tags --remove --platform-tag manylinux1_x86_64.manylinux_2_28_x86_64.manylinux_2_5_x86_64 the_dir/dist/*.whl`,
+/deps/bin/python3 -m wheel tags --remove --platform-tag manylinux1_x86_64.manylinux_2_28_x86_64.manylinux_2_5_x86_64 the_dir/dist/*.whl
+# Note: If the input wheel has unordered tags, python -m wheel tags canonicalizes
+# the tag order in both the filename and dist-info/WHEEL. Renaming the output wheel
+# ensures it matches the target artifact name expected by build planners, but this
+# leads to irreproducible builds if the input wheel has unordered tags.
+for f in the_dir/dist/*.whl; do
+  if [ -f "$f" ] && [ "$(basename "$f")" != "the_artifact" ]; then
+    mv "$f" "the_dir/dist/the_artifact"
+  fi
+  break
+done`,
 				Requires: rebuild.RequiredEnv{
 					BaseImage:  "quay.io/pypa/manylinux2014_x86_64",
 					SystemDeps: []string{"git"},
@@ -713,7 +773,17 @@ if $AUDITWHEEL repair the_dir/dist/*.whl --plat manylinux_2_28_x86_64 -w the_dir
   mv the_dir/dist/repaired/*.whl the_dir/dist/
 fi
 rm -rf the_dir/dist/repaired
-/deps/bin/python3 -m wheel tags --remove --platform-tag manylinux_2_28_x86_64 the_dir/dist/*.whl`,
+/deps/bin/python3 -m wheel tags --remove --platform-tag manylinux_2_28_x86_64 the_dir/dist/*.whl
+# Note: If the input wheel has unordered tags, python -m wheel tags canonicalizes
+# the tag order in both the filename and dist-info/WHEEL. Renaming the output wheel
+# ensures it matches the target artifact name expected by build planners, but this
+# leads to irreproducible builds if the input wheel has unordered tags.
+for f in the_dir/dist/*.whl; do
+  if [ -f "$f" ] && [ "$(basename "$f")" != "the_artifact" ]; then
+    mv "$f" "the_dir/dist/the_artifact"
+  fi
+  break
+done`,
 				Requires: rebuild.RequiredEnv{
 					BaseImage:  "quay.io/pypa/manylinux_2_28_x86_64",
 					SystemDeps: []string{"git"},
