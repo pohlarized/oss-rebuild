@@ -34,10 +34,14 @@ type dockerRunScriptArgs struct {
 // shell via CombinedScript without semantic drift.
 var dockerRunPhaseTpls = template.Must(
 	template.New("docker run phases").Funcs(template.FuncMap{
-		"list": func(items ...string) []string { return items },
+		"list":            func(items ...string) []string { return items },
+		"centosRepoSetup": build.CentOSRepoSetupScript,
 	}).Parse(
 		textwrap.Dedent(`
 			{{- define "setup" -}}
+			{{- if eq .OS "centos"}}
+			{{centosRepoSetup}}
+			{{- end}}
 			{{- if .UseTimewarp}}
 			{{- if eq .OS "alpine"}}
 			{{.PackageManager.InstallCommand (list "curl")}}

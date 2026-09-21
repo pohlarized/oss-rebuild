@@ -5,7 +5,10 @@ package local
 
 import (
 	"fmt"
+	"os"
 	"path"
+
+	"github.com/google/oss-rebuild/pkg/build"
 )
 
 // AuthMode selects how the AUTH_HEADER variable reaches the container.
@@ -66,6 +69,9 @@ func composeContainerArgs(plan *DockerRunPlan, opts RunArgsOpts) []string {
 		args = append(args, "-e", fmt.Sprintf("AUTH_HEADER=%s", opts.AuthValue))
 	case AuthEnvPassthrough:
 		args = append(args, "-e", "AUTH_HEADER")
+	}
+	if os.Getenv(build.ArtifactRegistryTokenEnvVar) != "" {
+		args = append(args, "-e", build.ArtifactRegistryTokenEnvVar)
 	}
 	// Disable core dumps
 	args = append(args, "--ulimit", "core=0")

@@ -75,3 +75,38 @@ func TestDockerBuildPlannerLayers(t *testing.T) {
 		})
 	}
 }
+
+func TestDockerBuildPlannerCentOS(t *testing.T) {
+	planner := NewDockerBuildPlanner()
+	opts := build.PlanOptions{
+		Resources: build.Resources{
+			BaseImageConfig: build.BaseImageConfig{Default: "centos:7"},
+		},
+	}
+	input := rebuild.Input{
+		Target: rebuild.Target{Ecosystem: rebuild.NPM, Package: "test-package", Version: "1.0.0", Artifact: "test-package-1.0.0.tgz"},
+		Strategy: &rebuild.ManualStrategy{
+			Location:   rebuild.Location{Repo: "https://github.com/example/test-package", Ref: "v1.0.0"},
+			Requires:   rebuild.RequiredEnv{SystemDeps: []string{"gcc"}},
+			Deps:       "npm install",
+			Build:      "npm pack",
+			OutputPath: "test-package-1.0.0.tgz",
+		},
+	}
+	plan, err := planner.GeneratePlan(context.Background(), input, opts)
+	if err != nil {
+		t.Fatalf("GeneratePlan failed: %v", err)
+	}
+	if !strings.Contains(plan.Dockerfile, "mount=type=secret,id=artifact_registry_token") {
+		t.Errorf("Dockerfile missing artifact_registry_token secret mount: %s", plan.Dockerfile)
+	}
+	if !strings.Contains(plan.Dockerfile, "rm -f /etc/yum.repos.d/*") {
+		t.Errorf("Dockerfile missing repo cleanup: %s", plan.Dockerfile)
+	}
+	if !strings.Contains(plan.Dockerfile, "/etc/yum/vars/yum_token") {
+		t.Errorf("Dockerfile missing yum_token write: %s", plan.Dockerfile)
+	}
+	if !strings.Contains(plan.Dockerfile, "/etc/yum.repos.d/oss_rebuild.repo") {
+		t.Errorf("Dockerfile missing oss_rebuild.repo write: %s", plan.Dockerfile)
+	}
+}

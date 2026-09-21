@@ -32,15 +32,19 @@ type dockerBuildContainerArgs struct {
 // NOTE: Layer mappings must be kept in sync with dockerfileLayers.
 var dockerBuildDockerfileTpl = template.Must(
 	template.New("docker build dockerfile").Funcs(template.FuncMap{
-		"indent": func(s string) string { return strings.ReplaceAll(s, "\n", "\n ") },
-		"join":   func(sep string, s []string) string { return strings.Join(s, sep) },
-		"list":   func(items ...string) []string { return items },
+		"indent":          func(s string) string { return strings.ReplaceAll(s, "\n", "\n ") },
+		"join":            func(sep string, s []string) string { return strings.Join(s, sep) },
+		"list":            func(items ...string) []string { return items },
+		"centosRepoSetup": build.CentOSRepoSetupScript,
 	}).Parse(
 		textwrap.Dedent(`
 			#syntax=docker/dockerfile:1.10
 			FROM {{.BaseImage}}
-			RUN {{if .TimewarpAuth}}--mount=type=secret,id=auth_header {{end}} sed 's/^ //' <<'EOF' | sh
+			RUN {{if eq .OS "centos"}}--mount=type=secret,id=artifact_registry_token,required=false {{end}}{{if .TimewarpAuth}}--mount=type=secret,id=auth_header {{end}}sed 's/^ //' <<'EOF' | sh
 			 set -eux
+			{{- if eq .OS "centos"}}
+			 {{centosRepoSetup | indent}}
+			{{- end}}
 			{{- if .UseTimewarp}}
 			 {{- if eq .OS "alpine"}}
 			 {{.PackageManager.InstallCommand (list "curl")}}
