@@ -27,6 +27,7 @@ type dockerRunScriptArgs struct {
 	Inst           rebuild.Instructions
 	OS             rebuild.OS
 	PackageManager rebuild.PackageManagerCommands
+	BaseImage      string
 	UseTimewarp    bool
 	TimewarpURL    string
 	TimewarpAuth   bool
@@ -39,10 +40,15 @@ type dockerRunScriptArgs struct {
 // header from a config heredoc: set -x prints argv, not heredoc bodies.
 var dockerRunPhaseTpls = template.Must(
 	template.New("docker run phases").Funcs(template.FuncMap{
-		"list": func(items ...string) []string { return items },
+		"list":                   func(items ...string) []string { return items },
+		"manylinux2014RepoSetup": build.Manylinux2014RepoSetupScript,
+		"isManylinux2014":        build.IsManylinux2014,
 	}).Parse(
 		textwrap.Dedent(`
 			{{- define "setup" -}}
+			{{- if isManylinux2014 .BaseImage}}
+			{{manylinux2014RepoSetup}}
+			{{- end}}
 			{{- if .UseTimewarp}}
 			{{- if eq .OS "alpine"}}
 			{{.PackageManager.InstallCommand (list "curl")}}
@@ -112,6 +118,7 @@ func (p *DockerRunPlanner) GeneratePlan(ctx context.Context, input rebuild.Input
 	}
 	args := dockerRunScriptArgs{
 		Inst:           instructions,
+		BaseImage:      image,
 		OS:             os,
 		PackageManager: rebuild.GetPackageManagerCommands(os),
 		UseTimewarp:    opts.UseTimewarp,

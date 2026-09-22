@@ -244,15 +244,20 @@ type gcbContainerArgs struct {
 // NOTE: Layer mappings must be kept in sync with dockerfileLayers.
 var gcbDockerfileTpl = template.Must(
 	template.New("gcb dockerfile").Funcs(template.FuncMap{
-		"indent": func(s string) string { return strings.ReplaceAll(s, "\n", "\n ") },
-		"join":   func(sep string, s []string) string { return strings.Join(s, sep) },
-		"list":   func(items ...string) []string { return items },
+		"indent":                 func(s string) string { return strings.ReplaceAll(s, "\n", "\n ") },
+		"join":                   func(sep string, s []string) string { return strings.Join(s, sep) },
+		"list":                   func(items ...string) []string { return items },
+		"manylinux2014RepoSetup": build.Manylinux2014RepoSetupScript,
+		"isManylinux2014":        build.IsManylinux2014,
 	}).Parse(
 		textwrap.Dedent(`
 			#syntax=docker/dockerfile:1.10
 			FROM {{.BaseImage}}
-			RUN {{if or .TimewarpAuth .ProxyAuth}}--mount=type=secret,id=auth_header {{end}}sed 's/^ //' <<'EOF' | sh
+			RUN {{if isManylinux2014 .BaseImage}}--mount=type=secret,id=artifact_registry_token,required=false {{end}}{{if or .TimewarpAuth .ProxyAuth}}--mount=type=secret,id=auth_header {{end}}sed 's/^ //' <<'EOF' | sh
 			 set -eux
+			{{- if isManylinux2014 .BaseImage}}
+			 {{manylinux2014RepoSetup | indent}}
+			{{- end}}
 			{{- if .UseTimewarp}}
 			 {{- if eq .OS "alpine"}}
 			 {{.PackageManager.InstallCommand (list "curl")}}

@@ -211,6 +211,9 @@ func (e *DockerBuildExecutor) executeBuild(ctx context.Context, handle *localHan
 	if e.memoryLimit != "" {
 		buildArgs = append(buildArgs, "--memory", e.memoryLimit)
 	}
+	if os.Getenv(build.ArtifactRegistryTokenEnvVar) != "" {
+		buildArgs = append(buildArgs, "--secret", fmt.Sprintf("id=artifact_registry_token,env=%s", build.ArtifactRegistryTokenEnvVar))
+	}
 	if plan.ContextDir != "" {
 		buildArgs = append(buildArgs, "-f-", plan.ContextDir)
 	} else {

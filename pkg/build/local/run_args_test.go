@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
+	"github.com/google/oss-rebuild/pkg/build"
 )
 
 func runArgsTestPlan() *DockerRunPlan {
@@ -84,6 +85,19 @@ func TestComposeDockerStartArgs(t *testing.T) {
 			}
 		})
 	}
+
+	t.Run("with ARTIFACT_REGISTRY_TOKEN env set", func(t *testing.T) {
+		t.Setenv(build.ArtifactRegistryTokenEnvVar, "token123")
+		plan := runArgsTestPlan()
+		opts := RunArgsOpts{
+			ContainerName:  "b1",
+			OutputMountSrc: "/tmp/oss-rebuild-b1",
+		}
+		want := []string{"run", "--detach", "--name", "b1", "-v", "/tmp/oss-rebuild-b1:/out", "-w", "/workspace", "-e", "ARTIFACT_REGISTRY_TOKEN", "--ulimit", "core=0", "alpine:3.19", "sleep", "infinity"}
+		if diff := cmp.Diff(want, ComposeDockerStartArgs(plan, opts)); diff != "" {
+			t.Errorf("args mismatch (-want +got):\n%s", diff)
+		}
+	})
 }
 
 func TestComposeDockerExecArgs(t *testing.T) {
