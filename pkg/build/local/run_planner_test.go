@@ -292,3 +292,61 @@ func TestDockerRunPlanPhases(t *testing.T) {
 		t.Errorf("CombinedScript() = %q, want %q", got, want)
 	}
 }
+
+func TestDockerRunPlannerManylinux2014(t *testing.T) {
+	planner := NewDockerRunPlanner()
+	opts := build.PlanOptions{
+		Resources: build.Resources{
+			BaseImageConfig: build.BaseImageConfig{Default: "quay.io/pypa/manylinux2014_x86_64"},
+		},
+	}
+	input := rebuild.Input{
+		Target: rebuild.Target{Ecosystem: rebuild.NPM, Package: "test-package", Version: "1.0.0", Artifact: "test-package-1.0.0.tgz"},
+		Strategy: &rebuild.ManualStrategy{
+			Location:   rebuild.Location{Repo: "https://github.com/example/test-package", Ref: "v1.0.0"},
+			Requires:   rebuild.RequiredEnv{SystemDeps: []string{"gcc"}},
+			Deps:       "npm install",
+			Build:      "npm pack",
+			OutputPath: "test-package-1.0.0.tgz",
+		},
+	}
+	plan, err := planner.GeneratePlan(context.Background(), input, opts)
+	if err != nil {
+		t.Fatalf("GeneratePlan failed: %v", err)
+	}
+	if !strings.Contains(plan.Setup, "rm -f /etc/yum.repos.d/*") {
+		t.Errorf("Setup script missing repo cleanup: %s", plan.Setup)
+	}
+	if !strings.Contains(plan.Setup, "/etc/yum/vars/yum_token") {
+		t.Errorf("Setup script missing yum_token write: %s", plan.Setup)
+	}
+	if !strings.Contains(plan.Setup, "/etc/yum.repos.d/oss_rebuild.repo") {
+		t.Errorf("Setup script missing oss_rebuild.repo write: %s", plan.Setup)
+	}
+}
+
+func TestDockerRunPlannerCentOSNotManylinux(t *testing.T) {
+	planner := NewDockerRunPlanner()
+	opts := build.PlanOptions{
+		Resources: build.Resources{
+			BaseImageConfig: build.BaseImageConfig{Default: "centos:7"},
+		},
+	}
+	input := rebuild.Input{
+		Target: rebuild.Target{Ecosystem: rebuild.NPM, Package: "test-package", Version: "1.0.0", Artifact: "test-package-1.0.0.tgz"},
+		Strategy: &rebuild.ManualStrategy{
+			Location:   rebuild.Location{Repo: "https://github.com/example/test-package", Ref: "v1.0.0"},
+			Requires:   rebuild.RequiredEnv{SystemDeps: []string{"gcc"}},
+			Deps:       "npm install",
+			Build:      "npm pack",
+			OutputPath: "test-package-1.0.0.tgz",
+		},
+	}
+	plan, err := planner.GeneratePlan(context.Background(), input, opts)
+	if err != nil {
+		t.Fatalf("GeneratePlan failed: %v", err)
+	}
+	if strings.Contains(plan.Setup, "oss_rebuild.repo") {
+		t.Errorf("Setup script unexpectedly contains oss_rebuild.repo for centos:7: %s", plan.Setup)
+	}
+}
