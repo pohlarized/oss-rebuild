@@ -36,6 +36,9 @@ func TestMakeDockerfile(t *testing.T) {
 	debianBaseImageConfig := build.BaseImageConfig{
 		Default: "docker.io/library/debian:stable-20251103-slim",
 	}
+	almalinuxBaseImageConfig := build.BaseImageConfig{
+		Default: "quay.io/pypa/manylinux_2_28_x86_64",
+	}
 
 	testCases := []testCase{
 		{
@@ -492,6 +495,61 @@ RUN sed 's/^ //' <<'EOF' | sh
    GIT_TERMINAL_PROMPT=0 git submodule update --init || true
    GIT_TERMINAL_PROMPT=0 git submodule foreach --recursive 'git submodule sync || true; GIT_TERMINAL_PROMPT=0 git submodule update --init || true' || true
  fi
+EOF
+RUN sed 's/^ //' <<'EOF' | sh
+ set -eux
+ ./timewarp -port 8080 &
+ while ! nc -z localhost 8080;do sleep 1;done
+ cd /src
+ make deps ...
+EOF
+RUN sed 's/^ //' <<'EOF' >/build
+ set -eux
+ make build ...
+ mkdir /out && cp /src/output/foo.tgz /out/
+EOF
+WORKDIR "/src"
+ENTRYPOINT ["/bin/sh","/build"]
+`,
+		},
+		{
+			name: "AlmaLinux base, with Timewarp",
+			input: rebuild.Input{
+				Target: rebuild.Target{},
+				Strategy: &rebuild.ManualStrategy{
+					Location: rebuild.Location{Repo: "github.com/example", Ref: "main", Dir: "/src"},
+					Requires: rebuild.RequiredEnv{
+						SystemDeps: []string{"git", "make"},
+					},
+					Deps:       "make deps ...",
+					Build:      "make build ...",
+					OutputPath: "output/foo.tgz",
+				},
+			},
+			opts: build.PlanOptions{
+				UseTimewarp:     true,
+				UseNetworkProxy: false,
+				Resources: build.Resources{
+					BaseImageConfig: almalinuxBaseImageConfig,
+					ToolURLs: map[build.ToolType]string{
+						build.TimewarpTool: "https://my-bucket.storage.googleapis.com/timewarp",
+					},
+				},
+			},
+			expected: `#syntax=docker/dockerfile:1.10
+FROM quay.io/pypa/manylinux_2_28_x86_64
+RUN sed 's/^ //' <<'EOF' | sh
+ set -eux
+ dnf install -y curl nmap-ncat
+ curl https://my-bucket.storage.googleapis.com/timewarp > timewarp
+ chmod +x timewarp
+ dnf install -y git make
+EOF
+RUN sed 's/^ //' <<'EOF' | sh
+ set -eux
+ mkdir /src && cd /src
+ git clone github.com/example .
+ git checkout --force 'main'
 EOF
 RUN sed 's/^ //' <<'EOF' | sh
  set -eux
