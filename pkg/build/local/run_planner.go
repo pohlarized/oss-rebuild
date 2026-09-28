@@ -21,8 +21,8 @@ type DockerRunPlanner struct {
 // dockerRunScriptArgs holds template arguments for the phase scripts
 type dockerRunScriptArgs struct {
 	Inst           rebuild.Instructions
-	OS             build.OS
-	PackageManager build.PackageManagerCommands
+	OS             rebuild.OS
+	PackageManager rebuild.PackageManagerCommands
 	UseTimewarp    bool
 	TimewarpURL    string
 	TimewarpAuth   bool
@@ -95,7 +95,7 @@ func (p *DockerRunPlanner) GeneratePlan(ctx context.Context, input rebuild.Input
 		return nil, errors.Wrap(err, "failed to generate rebuild instructions")
 	}
 	image := opts.Resources.BaseImageConfig.SelectFor(input, instructions.Requires)
-	os := build.DetectOS(image)
+	os := rebuild.MapOS(image)
 	timewarpURL, timewarpAuth, err := p.getToolURL(build.TimewarpTool, opts)
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to get timewarp URL")
@@ -103,7 +103,7 @@ func (p *DockerRunPlanner) GeneratePlan(ctx context.Context, input rebuild.Input
 	args := dockerRunScriptArgs{
 		Inst:           instructions,
 		OS:             os,
-		PackageManager: build.GetPackageManagerCommands(os),
+		PackageManager: rebuild.GetPackageManagerCommands(os),
 		UseTimewarp:    opts.UseTimewarp,
 		TimewarpURL:    timewarpURL,
 		TimewarpAuth:   timewarpAuth,
