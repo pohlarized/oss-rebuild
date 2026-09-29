@@ -434,6 +434,11 @@ func (Rebuilder) InferStrategy(ctx context.Context, t rebuild.Target, mux rebuil
 		} else {
 			reqs = mergeRequirements(reqs, buildReqs)
 		}
+		if cibwDeps, err := sysdeps.ExtractCibuildwheelDependencies(ctx, tree, dir); err != nil {
+			log.Println(errors.Wrap(err, "extracting cibuildwheel dependencies"))
+		} else {
+			sysdepsList = append(sysdepsList, cibwDeps...)
+		}
 	}
 	if strings.HasSuffix(a.Filename, ".tar.gz") {
 		return &SdistBuild{
