@@ -439,6 +439,11 @@ func (Rebuilder) InferStrategy(ctx context.Context, t rebuild.Target, mux rebuil
 		} else {
 			sysdepsList = append(sysdepsList, cibwDeps...)
 		}
+		if ghaDeps, err := sysdeps.ExtractGitHubActionsDependencies(ctx, tree); err != nil {
+			log.Println(errors.Wrap(err, "extracting github actions dependencies"))
+		} else {
+			sysdepsList = append(sysdepsList, ghaDeps...)
+		}
 	}
 	if strings.HasSuffix(a.Filename, ".tar.gz") {
 		return &SdistBuild{
