@@ -347,7 +347,7 @@ if [ -z "$INTERPRETER" ]; then
   exit 1
 fi
 $INTERPRETER -m venv /deps
-/deps/bin/pip install build wheel auditwheel
+/deps/bin/pip install build wheel
 /deps/bin/pip install 'req_1'
 /deps/bin/pip install 'req_2'`,
 				Build: `/deps/bin/python3 -m build --wheel -n the_dir
@@ -397,7 +397,7 @@ if [ -z "$INTERPRETER" ]; then
   exit 1
 fi
 $INTERPRETER -m venv /deps
-/deps/bin/pip install build wheel auditwheel
+/deps/bin/pip install build wheel
 /deps/bin/pip install 'req_1<='\''1.2.3'\'''`,
 				Build: `/deps/bin/python3 -m build --wheel -n the_dir
 mkdir -p the_dir/dist/repaired
@@ -445,7 +445,7 @@ if [ -z "$INTERPRETER" ]; then
   exit 1
 fi
 $INTERPRETER -m venv /deps
-/deps/bin/pip install build wheel auditwheel`,
+/deps/bin/pip install build wheel`,
 				Build: `/deps/bin/python3 -m build --wheel -n the_dir
 mkdir -p the_dir/dist/repaired
 AUDITWHEEL="/deps/bin/auditwheel"
@@ -486,7 +486,7 @@ else
   done
 fi
 $INTERPRETER -m venv /deps
-/deps/bin/pip install build wheel auditwheel
+/deps/bin/pip install build wheel
 export PIP_INDEX_URL=http://pypi:2006-01-02T03:04:05Z@orange/simple`,
 				Build: `/deps/bin/python3 -m build --wheel -n the_dir
 mkdir -p the_dir/dist/repaired
@@ -527,7 +527,7 @@ else
   done
 fi
 $INTERPRETER -m venv /deps
-/deps/bin/pip install build wheel auditwheel`,
+/deps/bin/pip install build wheel`,
 				Build: `/deps/bin/python3 -m build --wheel -n
 mkdir -p dist/repaired
 AUDITWHEEL="/deps/bin/auditwheel"
@@ -574,7 +574,7 @@ if [ -z "$INTERPRETER" ]; then
   exit 1
 fi
 $INTERPRETER -m venv /deps
-/deps/bin/pip install build wheel auditwheel`,
+/deps/bin/pip install build wheel`,
 				Build: `/deps/bin/python3 -m build --wheel -n the_dir
 mkdir -p the_dir/dist/repaired
 AUDITWHEEL="/deps/bin/auditwheel"
@@ -621,7 +621,7 @@ if [ -z "$INTERPRETER" ]; then
   exit 1
 fi
 $INTERPRETER -m venv /deps
-/deps/bin/pip install build wheel auditwheel`,
+/deps/bin/pip install build wheel`,
 				Build: `/deps/bin/python3 -m build --wheel -n the_dir
 mkdir -p the_dir/dist/repaired
 AUDITWHEEL="/deps/bin/auditwheel"
@@ -663,7 +663,7 @@ if [ -z "$INTERPRETER" ]; then
   exit 1
 fi
 $INTERPRETER -m venv /deps
-/deps/bin/pip install build wheel auditwheel`,
+/deps/bin/pip install build wheel`,
 				Build: `/deps/bin/python3 -m build --wheel -n the_dir
 mkdir -p the_dir/dist/repaired
 AUDITWHEEL="/deps/bin/auditwheel"
@@ -711,7 +711,7 @@ if [ -z "$INTERPRETER" ]; then
   exit 1
 fi
 $INTERPRETER -m venv /deps
-/deps/bin/pip install build wheel auditwheel
+/deps/bin/pip install build wheel
 /deps/bin/pip install 'wheel==0.37.1'
 /deps/bin/pip install 'setuptools<=67.7.2'`,
 				Build: `/deps/bin/python3 -m build --wheel -n the_dir
@@ -776,7 +776,7 @@ if [ -z "$INTERPRETER" ]; then
   exit 1
 fi
 $INTERPRETER -m venv /deps
-/deps/bin/pip install build wheel auditwheel
+/deps/bin/pip install build wheel
 /deps/bin/pip install 'wheel==0.38.0'
 /deps/bin/pip install 'setuptools<=67.7.2'`,
 				Build: `/deps/bin/python3 -m build --wheel -n the_dir
