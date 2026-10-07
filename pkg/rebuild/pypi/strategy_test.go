@@ -466,6 +466,54 @@ rm -rf the_dir/dist/repaired
 			},
 		},
 		{
+			"PinnedBaseImage",
+			&PlatformWheelBuild{
+				Location:    defaultLocation,
+				PythonTag:   "cp312",
+				ABITag:      "cp312",
+				PlatformTag: "musllinux_1_2_x86_64",
+				BaseImage:   "quay.io/pypa/musllinux_1_2_x86_64:2026.03.20-1@sha256:5b6fe3ed82ff48748c5c528fc82e42674a5363890ed949923af65b0c5b5ef76c",
+			},
+			rebuild.Instructions{
+				Location: defaultLocation,
+				Source:   "git checkout --force 'the_ref'",
+				Deps: `INTERPRETER=""
+if [ -d "/opt/python/cp312-cp312" ]; then
+  INTERPRETER="/opt/python/cp312-cp312/bin/python"
+else
+  for dir in /opt/python/cp312*; do
+    if [ -d "$dir" ]; then
+      INTERPRETER="$dir/bin/python"
+      break
+    fi
+  done
+fi
+if [ -z "$INTERPRETER" ]; then
+  echo "Error: Requested Python tag 'cp312' not found in /opt/python" >&2
+  exit 1
+fi
+$INTERPRETER -m venv /deps
+/deps/bin/pip install build wheel`,
+				Build: `/deps/bin/python3 -m build --wheel -n the_dir
+mkdir -p the_dir/dist/repaired
+AUDITWHEEL="/deps/bin/auditwheel"
+if [ ! -x "$AUDITWHEEL" ]; then
+  AUDITWHEEL="auditwheel"
+fi
+if $AUDITWHEEL repair the_dir/dist/*.whl --plat musllinux_1_2_x86_64 -w the_dir/dist/repaired/; then
+  rm -f the_dir/dist/*.whl
+  mv the_dir/dist/repaired/*.whl the_dir/dist/
+fi
+rm -rf the_dir/dist/repaired
+/deps/bin/python3 -m wheel tags --remove --platform-tag musllinux_1_2_x86_64 the_dir/dist/*.whl`,
+				Requires: rebuild.RequiredEnv{
+					BaseImage:  "quay.io/pypa/musllinux_1_2_x86_64:2026.03.20-1@sha256:5b6fe3ed82ff48748c5c528fc82e42674a5363890ed949923af65b0c5b5ef76c",
+					SystemDeps: []string{"git"},
+				},
+				OutputPath: "the_dir/dist/the_artifact",
+			},
+		},
+		{
 			"WithTimewarp",
 			&PlatformWheelBuild{
 				Location:     defaultLocation,
@@ -812,10 +860,12 @@ rm -rf the_dir/dist/repaired
 	}
 }
 
-func TestPlatformWheelBuild_BaseImage(t *testing.T) {
+func TestPlatformWheelBuild_resolveBaseImage(t *testing.T) {
+	const pinned = "quay.io/pypa/musllinux_1_2_x86_64:2026.03.20-1@sha256:5b6fe3ed82ff48748c5c528fc82e42674a5363890ed949923af65b0c5b5ef76c"
 	tests := []struct {
 		name        string
 		platformTag string
+		baseImage   string
 		want        string
 		wantErr     bool
 	}{
@@ -850,6 +900,18 @@ func TestPlatformWheelBuild_BaseImage(t *testing.T) {
 			want:        "quay.io/pypa/musllinux_1_2_x86_64",
 		},
 		{
+			name:        "explicit base image is used verbatim",
+			platformTag: "musllinux_1_2_x86_64",
+			baseImage:   pinned,
+			want:        pinned,
+		},
+		{
+			name:        "explicit base image skips platform tag selection",
+			platformTag: "invalid_tag",
+			baseImage:   pinned,
+			want:        pinned,
+		},
+		{
 			name:        "empty platform tag returns error",
 			platformTag: "",
 			wantErr:     true,
@@ -862,13 +924,13 @@ func TestPlatformWheelBuild_BaseImage(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			b := &PlatformWheelBuild{PlatformTag: tt.platformTag}
-			got, err := b.BaseImage()
+			b := &PlatformWheelBuild{PlatformTag: tt.platformTag, BaseImage: tt.baseImage}
+			got, err := b.resolveBaseImage()
 			if (err != nil) != tt.wantErr {
-				t.Fatalf("BaseImage() error = %v, wantErr %v", err, tt.wantErr)
+				t.Fatalf("resolveBaseImage() error = %v, wantErr %v", err, tt.wantErr)
 			}
 			if !tt.wantErr && got != tt.want {
-				t.Errorf("BaseImage() = %q, want %q", got, tt.want)
+				t.Errorf("resolveBaseImage() = %q, want %q", got, tt.want)
 			}
 		})
 	}
