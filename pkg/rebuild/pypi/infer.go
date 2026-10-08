@@ -494,7 +494,7 @@ func inferBuild(ctx context.Context, t rebuild.Target, mux rebuild.RegistryMux, 
 		if _, err := platform.ParsePlatformTags(tags.Platform); err != nil {
 			return nil, errors.Wrapf(err, "unsupported platform tag in wheel filename %s", a.Filename)
 		}
-		cibwVersion, err := extractCibuildwheelVersion(tree)
+		cibwVersion, err := extractCibuildwheelVersion(tree, platform.CibuildwheelPins)
 		if err != nil {
 			log.Println(errors.Wrap(err, "Failed to extract the cibuildwheel version"))
 		}

@@ -17,6 +17,8 @@ type CibuildwheelRelease struct {
 	Version string
 	// Published is when the release was uploaded to PyPI.
 	Published time.Time
+	// Commit is the hash of the commit that the release tag points to.
+	Commit string
 	// Images maps the supported image repositories that the release pins to
 	// the pinned images.
 	Images map[string]PinnedImage
@@ -81,6 +83,18 @@ func (p CibuildwheelPinTable) Image(repo, version string) (ref string, ok bool) 
 			return "", false
 		}
 		return img.reference(repo), true
+	}
+	return "", false
+}
+
+// VersionTaggedAt returns the cibuildwheel version whose release tag points to
+// commit, a full commit hash. ok is false if no release in the table is tagged
+// at commit.
+func (p CibuildwheelPinTable) VersionTaggedAt(commit string) (version string, ok bool) {
+	for _, rel := range p {
+		if rel.Commit == commit {
+			return rel.Version, true
+		}
 	}
 	return "", false
 }

@@ -42,7 +42,16 @@ func TestCibuildwheelVersions(t *testing.T) {
 				jobs:
 				  wheels:
 				    steps:
-				      - uses: pypa/cibuildwheel@0123456789abcdef0123456789abcdef01234567 # v2.16.2`,
+				      - uses: pypa/cibuildwheel@` + testCommit("5") + ` # v2.16.2`,
+			want: []string{"2.16.2"},
+		},
+		{
+			name: "UntaggedActionCommit",
+			workflow: `
+				jobs:
+				  wheels:
+				    steps:
+				      - uses: pypa/cibuildwheel@0123456789abcdef0123456789abcdef01234567`,
 			want: nil,
 		},
 		{
@@ -122,7 +131,7 @@ func TestCibuildwheelVersions(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			got := cibuildwheelVersions([]byte(textwrap.Dedent(tc.workflow)))
+			got := cibuildwheelVersions([]byte(textwrap.Dedent(tc.workflow)), testPins)
 			if diff := cmp.Diff(tc.want, got); diff != "" {
 				t.Errorf("cibuildwheelVersions() returned diff (-want +got):\n%s", diff)
 			}
@@ -172,7 +181,7 @@ func TestExtractCibuildwheelVersion(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			repo := must(gitxtest.CreateRepo([]gitxtest.Commit{{ID: "initial-commit", Files: tc.files}}, nil))
 			commit := must(repo.CommitObject(repo.Commits["initial-commit"]))
-			got, err := extractCibuildwheelVersion(must(commit.Tree()))
+			got, err := extractCibuildwheelVersion(must(commit.Tree()), testPins)
 			if err != nil {
 				t.Fatalf("extractCibuildwheelVersion() returned error: %v", err)
 			}

@@ -4,6 +4,7 @@
 package platform
 
 import (
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -194,17 +195,63 @@ func TestCibuildwheelPinTable_Image(t *testing.T) {
 	}
 }
 
-// TestCibuildwheelPins guards the version comparison of the lookups against
-// generated versions that internal/semver cannot order.
+func TestCibuildwheelPinTable_VersionTaggedAt(t *testing.T) {
+	commit := func(c string) string { return strings.Repeat(c, 40) }
+	pins := CibuildwheelPinTable{
+		{Version: "1.0.0", Commit: commit("1")},
+		{Version: "2.0.0", Commit: commit("2")},
+	}
+	type result struct {
+		Version string
+		OK      bool
+	}
+	tests := []struct {
+		name   string
+		commit string
+		want   result
+	}{
+		{
+			name:   "TaggedCommit",
+			commit: commit("2"),
+			want:   result{Version: "2.0.0", OK: true},
+		},
+		{
+			name:   "UntaggedCommit",
+			commit: commit("3"),
+			want:   result{},
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			var got result
+			got.Version, got.OK = pins.VersionTaggedAt(tc.commit)
+			if diff := cmp.Diff(tc.want, got); diff != "" {
+				t.Errorf("VersionTaggedAt(%q) returned diff (-want +got):\n%s", tc.commit, diff)
+			}
+		})
+	}
+}
+
+// TestCibuildwheelPins guards the lookups against generated versions that
+// internal/semver cannot order and against ambiguous commits.
 func TestCibuildwheelPins(t *testing.T) {
-	seen := make(map[string]bool)
+	commitPat := regexp.MustCompile(`^[0-9a-f]{40}$`)
+	versions := make(map[string]bool)
+	commits := make(map[string]bool)
 	for _, rel := range CibuildwheelPins {
 		if _, err := semver.New(rel.Version); err != nil {
 			t.Errorf("version %q is not a semantic version", rel.Version)
 		}
-		if seen[rel.Version] {
+		if versions[rel.Version] {
 			t.Errorf("version %q is listed more than once", rel.Version)
 		}
-		seen[rel.Version] = true
+		versions[rel.Version] = true
+		if !commitPat.MatchString(rel.Commit) {
+			t.Errorf("commit %q of %s is not a full commit hash", rel.Commit, rel.Version)
+		}
+		if commits[rel.Commit] {
+			t.Errorf("commit %q of %s is listed more than once", rel.Commit, rel.Version)
+		}
+		commits[rel.Commit] = true
 	}
 }

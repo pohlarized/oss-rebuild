@@ -12,6 +12,7 @@ import (
 
 	"github.com/go-git/go-git/v5/plumbing/object"
 	"github.com/google/oss-rebuild/internal/semver"
+	"github.com/google/oss-rebuild/pkg/rebuild/pypi/platform"
 	"github.com/pkg/errors"
 	"gopkg.in/yaml.v3"
 )
@@ -21,8 +22,9 @@ const workflowsDir = ".github/workflows"
 
 var (
 	// cibuildwheelActionPat matches a step that uses a release of the
-	// cibuildwheel action, such as "pypa/cibuildwheel@v2.16.2".
-	cibuildwheelActionPat = re.MustCompile(`^pypa/cibuildwheel@v?(\d+\.\d+\.\d+)$`)
+	// cibuildwheel action by tag, such as "pypa/cibuildwheel@v2.16.2", or by
+	// the full hash of the tagged commit.
+	cibuildwheelActionPat = re.MustCompile(`^pypa/cibuildwheel@(?:v?(\d+\.\d+\.\d+)|([0-9a-f]{40}))$`)
 	// cibuildwheelReqPat matches an exact cibuildwheel requirement in a
 	// command, such as "pipx run cibuildwheel==2.16.2".
 	cibuildwheelReqPat = re.MustCompile(`\bcibuildwheel(?:\[[^\]]*\])?\s*==\s*(\d+\.\d+\.\d+)\b`)
@@ -45,8 +47,9 @@ type ghaStep struct {
 }
 
 // extractCibuildwheelVersion returns the highest cibuildwheel version that the
-// GitHub Actions workflows in tree pin, or "" if they pin none.
-func extractCibuildwheelVersion(tree *object.Tree) (string, error) {
+// GitHub Actions workflows in tree pin, or "" if they pin none. Commit-pinned
+// uses of the cibuildwheel action are resolved to versions with pins.
+func extractCibuildwheelVersion(tree *object.Tree, pins platform.CibuildwheelPinTable) (string, error) {
 	workflows, err := tree.Tree(workflowsDir)
 	if err == object.ErrDirectoryNotFound {
 		return "", nil
@@ -66,7 +69,7 @@ func extractCibuildwheelVersion(tree *object.Tree) (string, error) {
 		if err != nil {
 			return "", errors.Wrapf(err, "reading workflow %s", entry.Name)
 		}
-		for _, v := range cibuildwheelVersions([]byte(contents)) {
+		for _, v := range cibuildwheelVersions([]byte(contents), pins) {
 			if highest == "" || semver.Cmp(v, highest) > 0 {
 				highest = v
 			}
@@ -79,7 +82,7 @@ func extractCibuildwheelVersion(tree *object.Tree) (string, error) {
 // workflow pins, either as the release of the cibuildwheel action that a step
 // uses or as an exact requirement in a command that a step runs. Versions are
 // ordered by job name. A workflow that cannot be parsed pins none.
-func cibuildwheelVersions(workflow []byte) []string {
+func cibuildwheelVersions(workflow []byte, pins platform.CibuildwheelPinTable) []string {
 	var wf ghaWorkflow
 	if err := yaml.Unmarshal(workflow, &wf); err != nil {
 		return nil
@@ -87,8 +90,8 @@ func cibuildwheelVersions(workflow []byte) []string {
 	var versions []string
 	for _, name := range slices.Sorted(maps.Keys(wf.Jobs)) {
 		for _, step := range wf.Jobs[name].Steps {
-			if m := cibuildwheelActionPat.FindStringSubmatch(strings.TrimSpace(step.Uses)); m != nil {
-				versions = append(versions, m[1])
+			if v, ok := actionVersion(step.Uses, pins); ok {
+				versions = append(versions, v)
 			}
 			for _, m := range cibuildwheelReqPat.FindAllStringSubmatch(step.Run, -1) {
 				versions = append(versions, m[1])
@@ -96,4 +99,19 @@ func cibuildwheelVersions(workflow []byte) []string {
 		}
 	}
 	return versions
+}
+
+// actionVersion returns the release of the cibuildwheel action that a step
+// uses. ok is false if the step uses another action, a branch or a commit
+// that no release tag in pins points to.
+func actionVersion(uses string, pins platform.CibuildwheelPinTable) (version string, ok bool) {
+	m := cibuildwheelActionPat.FindStringSubmatch(strings.TrimSpace(uses))
+	switch {
+	case m == nil:
+		return "", false
+	case m[1] != "":
+		return m[1], true
+	default:
+		return pins.VersionTaggedAt(m[2])
+	}
 }
