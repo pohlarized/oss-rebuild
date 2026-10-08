@@ -646,6 +646,7 @@ func TestInferBaseImage(t *testing.T) {
 	tests := []struct {
 		name        string
 		platformTag string
+		cibwVersion string
 		uploaded    time.Time
 		want        string
 	}{
@@ -670,6 +671,30 @@ func TestInferBaseImage(t *testing.T) {
 			want:        "quay.io/pypa/musllinux_1_1_x86_64:2023-10-03-72cdc42@" + testDigest("c"),
 		},
 		{
+			name:        "ConfigVersion",
+			platformTag: "manylinux2014_x86_64",
+			cibwVersion: "2.16.2",
+			uploaded:    time.Date(2026, time.May, 1, 0, 0, 0, 0, time.UTC),
+			want:        "quay.io/pypa/manylinux2014_x86_64:2023-10-03-72cdc42@" + testDigest("a"),
+		},
+		{
+			// A version newer than the pin table falls back to the upload time.
+			name:        "UnknownConfigVersion",
+			platformTag: "musllinux_1_2_x86_64",
+			cibwVersion: "9.9.9",
+			uploaded:    time.Date(2026, time.May, 1, 0, 0, 0, 0, time.UTC),
+			want:        "quay.io/pypa/musllinux_1_2_x86_64:2026.03.01-1@" + testDigest("f"),
+		},
+		{
+			// A version that does not pin the repository falls back to the
+			// upload time, which selects the highest version that does.
+			name:        "ConfigVersionWithoutRepository",
+			platformTag: "musllinux_1_1_x86_64",
+			cibwVersion: "3.4.0",
+			uploaded:    time.Date(2026, time.May, 1, 0, 0, 0, 0, time.UTC),
+			want:        "quay.io/pypa/musllinux_1_1_x86_64:2023-10-03-72cdc42@" + testDigest("c"),
+		},
+		{
 			name:        "ExpiredPin",
 			platformTag: "manylinux2014_x86_64",
 			uploaded:    time.Date(2021, time.August, 1, 0, 0, 0, 0, time.UTC),
@@ -690,8 +715,8 @@ func TestInferBaseImage(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := inferBaseImage(testPins, tt.platformTag, tt.uploaded); got != tt.want {
-				t.Errorf("inferBaseImage(%q, %v) = %q, want %q", tt.platformTag, tt.uploaded, got, tt.want)
+			if got := inferBaseImage(testPins, tt.platformTag, tt.cibwVersion, tt.uploaded); got != tt.want {
+				t.Errorf("inferBaseImage(%q, %q, %v) = %q, want %q", tt.platformTag, tt.cibwVersion, tt.uploaded, got, tt.want)
 			}
 		})
 	}

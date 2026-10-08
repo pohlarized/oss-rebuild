@@ -132,6 +132,68 @@ func TestCibuildwheelPinTable_ImageAt(t *testing.T) {
 	}
 }
 
+func TestCibuildwheelPinTable_Image(t *testing.T) {
+	digest := "sha256:" + strings.Repeat("1", 64)
+	pins := CibuildwheelPinTable{
+		{
+			Version: "1.0.0",
+			Images: map[string]PinnedImage{
+				ImageManylinux2014X86_64: {Tag: "expired"},
+			},
+		},
+		{
+			Version: "2.0.0",
+			Images: map[string]PinnedImage{
+				ImageManylinux2014X86_64: {Tag: "t2", Digest: digest},
+			},
+		},
+	}
+	type result struct {
+		Ref string
+		OK  bool
+	}
+	tests := []struct {
+		name    string
+		repo    string
+		version string
+		want    result
+	}{
+		{
+			name:    "KnownVersion",
+			repo:    ImageManylinux2014X86_64,
+			version: "2.0.0",
+			want:    result{Ref: ImageManylinux2014X86_64 + ":t2@" + digest, OK: true},
+		},
+		{
+			name:    "UnknownVersion",
+			repo:    ImageManylinux2014X86_64,
+			version: "3.0.0",
+			want:    result{},
+		},
+		{
+			name:    "RepoNotPinned",
+			repo:    ImageMusllinux1_2X86_64,
+			version: "2.0.0",
+			want:    result{},
+		},
+		{
+			name:    "ExpiredPin",
+			repo:    ImageManylinux2014X86_64,
+			version: "1.0.0",
+			want:    result{},
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			var got result
+			got.Ref, got.OK = pins.Image(tc.repo, tc.version)
+			if diff := cmp.Diff(tc.want, got); diff != "" {
+				t.Errorf("Image(%q, %q) returned diff (-want +got):\n%s", tc.repo, tc.version, diff)
+			}
+		})
+	}
+}
+
 // TestCibuildwheelPins guards the version comparison of the lookups against
 // generated versions that internal/semver cannot order.
 func TestCibuildwheelPins(t *testing.T) {

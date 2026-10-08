@@ -454,16 +454,16 @@ func inferBuild(ctx context.Context, t rebuild.Target, mux rebuild.RegistryMux, 
 		// We'll get them from pyproject.toml below
 		reqs = []string{}
 	}
+	commit, err := rcfg.Repository.CommitObject(plumbing.NewHash(ref))
+	if err != nil {
+		return nil, errors.Wrapf(err, "Failed to get commit object")
+	}
+	tree, err := commit.Tree()
+	if err != nil {
+		return nil, errors.Wrapf(err, "Failed to get tree")
+	}
 	// Extract pyproject.toml requirements.
 	{
-		commit, err := rcfg.Repository.CommitObject(plumbing.NewHash(ref))
-		if err != nil {
-			return nil, errors.Wrapf(err, "Failed to get commit object")
-		}
-		tree, err := commit.Tree()
-		if err != nil {
-			return nil, errors.Wrapf(err, "Failed to get tree")
-		}
 		newFoundDir, err := pypiresolver.DiscoverBuildDir(ctx, tree, name, version, dir)
 		if err != nil {
 			log.Println(errors.Wrap(err, "Failed to discover build dir."))
@@ -494,6 +494,10 @@ func inferBuild(ctx context.Context, t rebuild.Target, mux rebuild.RegistryMux, 
 		if _, err := platform.ParsePlatformTags(tags.Platform); err != nil {
 			return nil, errors.Wrapf(err, "unsupported platform tag in wheel filename %s", a.Filename)
 		}
+		cibwVersion, err := extractCibuildwheelVersion(tree)
+		if err != nil {
+			log.Println(errors.Wrap(err, "Failed to extract the cibuildwheel version"))
+		}
 		return &PlatformWheelBuild{
 			Location: rebuild.Location{
 				Repo: rcfg.URI,
@@ -505,7 +509,7 @@ func inferBuild(ctx context.Context, t rebuild.Target, mux rebuild.RegistryMux, 
 			PlatformTag:  tags.Platform,
 			Requirements: reqs,
 			RegistryTime: a.UploadTime,
-			BaseImage:    inferBaseImage(platform.CibuildwheelPins, tags.Platform, a.UploadTime),
+			BaseImage:    inferBaseImage(platform.CibuildwheelPins, tags.Platform, cibwVersion, a.UploadTime),
 		}, nil
 	} else {
 		return &PureWheelBuild{
@@ -523,14 +527,22 @@ func inferBuild(ctx context.Context, t rebuild.Target, mux rebuild.RegistryMux, 
 }
 
 // inferBaseImage returns the build image that cibuildwheel pinned for
-// platformTag when the wheel was uploaded, according to pins. It returns an
-// empty string, which selects the unpinned image at build time, if no pin is
-// known.
-func inferBaseImage(pins platform.CibuildwheelPinTable, platformTag string, uploaded time.Time) string {
+// platformTag, according to pins. The cibuildwheel version from the CI config
+// takes precedence over the version that was current when the wheel was
+// uploaded. It returns an empty string, which selects the unpinned image at
+// build time, if no pin is known.
+func inferBaseImage(pins platform.CibuildwheelPinTable, platformTag, cibwVersion string, uploaded time.Time) string {
 	repo, err := platform.SelectBaseImage(platformTag)
 	if err != nil {
 		log.Println(errors.Wrap(err, "Failed to select base image"))
 		return ""
+	}
+	if cibwVersion != "" {
+		if ref, ok := pins.Image(repo, cibwVersion); ok {
+			log.Printf("Using base image %s pinned by cibuildwheel %s from the CI config", ref, cibwVersion)
+			return ref
+		}
+		log.Printf("No pin known for %s in cibuildwheel %s from the CI config, falling back to the upload time", repo, cibwVersion)
 	}
 	ref, version, ok := pins.ImageAt(repo, uploaded)
 	if !ok {

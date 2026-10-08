@@ -68,6 +68,23 @@ func (p CibuildwheelPinTable) ImageAt(repo string, t time.Time) (ref, version st
 	return img.reference(repo), best.Version, true
 }
 
+// Image returns the digest-pinned reference to the repo image that
+// cibuildwheel version pins. ok is false if the version is unknown, does not
+// pin repo or if the digest of the pin is unknown.
+func (p CibuildwheelPinTable) Image(repo, version string) (ref string, ok bool) {
+	for _, rel := range p {
+		if rel.Version != version {
+			continue
+		}
+		img, pinned := rel.Images[repo]
+		if !pinned || img.Digest == "" {
+			return "", false
+		}
+		return img.reference(repo), true
+	}
+	return "", false
+}
+
 // reference returns the reference to the image in repo. The digest takes
 // precedence over the tag, which is kept for readability.
 func (i PinnedImage) reference(repo string) string {
