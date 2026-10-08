@@ -500,6 +500,10 @@ func inferBuild(ctx context.Context, t rebuild.Target, mux rebuild.RegistryMux, 
 		if err != nil {
 			log.Println(errors.Wrap(err, "Failed to extract the cibuildwheel version"))
 		}
+		usesCibw, err := usesCibuildwheel(tree)
+		if err != nil {
+			log.Println(errors.Wrap(err, "Failed to check the CI config for cibuildwheel"))
+		}
 		return &PlatformWheelBuild{
 			Location: rebuild.Location{
 				Repo: rcfg.URI,
@@ -512,7 +516,7 @@ func inferBuild(ctx context.Context, t rebuild.Target, mux rebuild.RegistryMux, 
 			Requirements: reqs,
 			RegistryTime: a.UploadTime,
 			BaseImage:    inferBaseImage(platform.CibuildwheelPins, tags.Platform, cibwVersion, a.UploadTime),
-			BuildRoot:    inferBuildRoot(zr, tree),
+			BuildRoot:    inferBuildRoot(zr, tree, usesCibw),
 		}, nil
 	} else {
 		return &PureWheelBuild{
@@ -557,11 +561,13 @@ func inferBaseImage(pins platform.CibuildwheelPinTable, platformTag, cibwVersion
 }
 
 // inferBuildRoot returns the absolute path that upstream built the repository
-// at, as recorded in the debug info of the wheel's extension modules. It
-// returns an empty string, which builds in the checkout, if the debug info
-// records no root, the checkout itself or a root that the build step cannot
-// use.
-func inferBuildRoot(zr *zip.Reader, tree *object.Tree) string {
+// at. The path recorded in the debug info of the wheel's extension modules
+// takes precedence. Without one, a project whose CI runs cibuildwheel built in
+// the directory that cibuildwheel copies the project to. It returns an empty
+// string, which builds in the checkout, if neither applies, if the debug info
+// records the checkout itself, or if it records a root that the build step
+// cannot use, since that root is still evidence that upstream built elsewhere.
+func inferBuildRoot(zr *zip.Reader, tree *object.Tree, usesCibuildwheel bool) string {
 	root, skipped, err := buildRootFromDWARF(zr, tree)
 	if len(skipped) > 0 {
 		log.Printf("Skipped %d modules whose debug info could not be read while inferring the build root, first: %v", len(skipped), skipped[0])
@@ -570,18 +576,21 @@ func inferBuildRoot(zr *zip.Reader, tree *object.Tree) string {
 		log.Println(errors.Wrap(err, "Failed to read the build root from DWARF"))
 	}
 	switch {
-	case root == "":
-		return ""
 	case root == checkoutDir:
 		log.Printf("Upstream built in %s, which is the checkout, so no build root is needed", root)
 		return ""
+	case root != "":
+		if err := validateBuildRoot(root); err != nil {
+			log.Println(errors.Wrap(err, "Ignoring the build root from DWARF"))
+			return ""
+		}
+		log.Printf("Using build root %s from DWARF", root)
+		return root
+	case usesCibuildwheel:
+		log.Printf("No build root in DWARF, using %s, where cibuildwheel copies the project", cibuildwheelProjectDir)
+		return cibuildwheelProjectDir
 	}
-	if err := validateBuildRoot(root); err != nil {
-		log.Println(errors.Wrap(err, "Ignoring the build root from DWARF"))
-		return ""
-	}
-	log.Printf("Using build root %s from DWARF", root)
-	return root
+	return ""
 }
 
 var (

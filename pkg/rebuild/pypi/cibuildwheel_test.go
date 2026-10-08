@@ -225,3 +225,80 @@ func TestExtractCibuildwheelVersion(t *testing.T) {
 		})
 	}
 }
+
+func TestUsesCibuildwheel(t *testing.T) {
+	workflow := func(step string) string {
+		return textwrap.Dedent(`
+			jobs:
+			  wheels:
+			    steps:
+			      - ` + step)
+	}
+	tests := []struct {
+		name  string
+		files gitxtest.FileContent
+		want  bool
+	}{
+		{
+			name:  "ActionBranch",
+			files: gitxtest.FileContent{".github/workflows/wheels.yml": workflow("uses: pypa/cibuildwheel@main")},
+			want:  true,
+		},
+		{
+			name:  "ActionTag",
+			files: gitxtest.FileContent{".github/workflows/wheels.yml": workflow("uses: pypa/cibuildwheel@v2.16.2")},
+			want:  true,
+		},
+		{
+			name:  "PipxRun",
+			files: gitxtest.FileContent{".github/workflows/wheels.yml": workflow("run: pipx run cibuildwheel --output-dir wheelhouse")},
+			want:  true,
+		},
+		{
+			name:  "PythonModule",
+			files: gitxtest.FileContent{".github/workflows/wheels.yaml": workflow("run: python -m cibuildwheel")},
+			want:  true,
+		},
+		{
+			name: "SecondWorkflow",
+			files: gitxtest.FileContent{
+				".github/workflows/test.yml":   workflow("run: pytest"),
+				".github/workflows/wheels.yml": workflow("uses: pypa/cibuildwheel@v2.16.2"),
+			},
+			want: true,
+		},
+		{
+			name:  "OtherAction",
+			files: gitxtest.FileContent{".github/workflows/wheels.yml": workflow("uses: actions/checkout@v4")},
+			want:  false,
+		},
+		{
+			name:  "SimilarName",
+			files: gitxtest.FileContent{".github/workflows/wheels.yml": workflow("run: pip install cibuildwheel_fork")},
+			want:  false,
+		},
+		{
+			name:  "NonWorkflowFile",
+			files: gitxtest.FileContent{".github/workflows/wheels.yml.disabled": workflow("uses: pypa/cibuildwheel@v2.16.2")},
+			want:  false,
+		},
+		{
+			name:  "NoWorkflows",
+			files: gitxtest.FileContent{"README.md": "# test-package\n"},
+			want:  false,
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			repo := must(gitxtest.CreateRepo([]gitxtest.Commit{{ID: "initial-commit", Files: tc.files}}, nil))
+			commit := must(repo.CommitObject(repo.Commits["initial-commit"]))
+			got, err := usesCibuildwheel(must(commit.Tree()))
+			if err != nil {
+				t.Fatalf("usesCibuildwheel() returned error: %v", err)
+			}
+			if got != tc.want {
+				t.Errorf("usesCibuildwheel() = %t, want %t", got, tc.want)
+			}
+		})
+	}
+}
