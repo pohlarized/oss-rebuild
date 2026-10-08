@@ -4,6 +4,9 @@
 package pypi
 
 import (
+	"path"
+	re "regexp"
+	"strings"
 	"time"
 
 	"github.com/google/oss-rebuild/internal/textwrap"
@@ -139,6 +142,11 @@ type PlatformWheelBuild struct {
 	// because the image determines the compiler, CPython builds and auditwheel.
 	// When unset, the latest image of the family matching PlatformTag is used.
 	BaseImage string `json:"base_image,omitempty" yaml:"base_image,omitempty"`
+	// BuildRoot is the absolute path that the repository is built at, such as
+	// "/project" where cibuildwheel mounts it. Compilers record the build path
+	// in debug info, so it has to match the upstream build for the binaries to
+	// match. When unset, the build runs in the checkout.
+	BuildRoot string `json:"build_root,omitempty" yaml:"build_root,omitempty"`
 }
 
 var _ rebuild.Strategy = &PlatformWheelBuild{}
@@ -150,10 +158,46 @@ func (b *PlatformWheelBuild) resolveBaseImage() (string, error) {
 	return platform.SelectBaseImage(b.PlatformTag)
 }
 
+const (
+	// checkoutDir is where the build planners check out the repository.
+	checkoutDir = "/src"
+	// venvDir is where the dependency steps create the virtual environment.
+	venvDir = "/deps"
+)
+
+// reservedDirs are the directories that the build steps use and that a build
+// root must not overlap.
+var reservedDirs = []string{checkoutDir, venvDir}
+
+// buildRootPat matches absolute paths of characters that need no shell quoting.
+var buildRootPat = re.MustCompile(`^(/[A-Za-z0-9._+,@-]+)+$`)
+
+// validateBuildRoot rejects build roots that the checkout cannot be copied to.
+// An empty build root is valid and keeps the build in the checkout.
+func validateBuildRoot(root string) error {
+	switch {
+	case root == "":
+		return nil
+	case !buildRootPat.MatchString(root):
+		return errors.Errorf("build root %q is not an absolute path of letters, digits and '._+,@-'", root)
+	case path.Clean(root) != root:
+		return errors.Errorf("build root %q is not a clean path", root)
+	}
+	for _, dir := range reservedDirs {
+		if root == dir || strings.HasPrefix(root, dir+"/") {
+			return errors.Errorf("build root %q overlaps the build directory %s", root, dir)
+		}
+	}
+	return nil
+}
+
 func (b *PlatformWheelBuild) ToWorkflow() (*rebuild.WorkflowStrategy, error) {
 	baseImage, err := b.resolveBaseImage()
 	if err != nil {
 		return nil, errors.Wrap(err, "selecting base image")
+	}
+	if err := validateBuildRoot(b.BuildRoot); err != nil {
+		return nil, errors.Wrap(err, "validating build root")
 	}
 	var registryTime string
 	if !b.RegistryTime.IsZero() {
@@ -178,15 +222,16 @@ func (b *PlatformWheelBuild) ToWorkflow() (*rebuild.WorkflowStrategy, error) {
 				"requirements": flow.MustToJSON(b.Requirements),
 				"pythonTag":    b.PythonTag,
 				"abiTag":       b.ABITag,
-				"venv":         "/deps",
+				"venv":         venvDir,
 			},
 		}},
 		Build: []flow.Step{{
 			Uses: "pypi/build/platform-wheel",
 			With: map[string]string{
-				"dir":     b.Location.Dir,
-				"distDir": distDir,
-				"locator": "/deps/bin/",
+				"dir":       b.Location.Dir,
+				"distDir":   distDir,
+				"buildRoot": b.BuildRoot,
+				"locator":   venvDir + "/bin/",
 				// auditwheel repair --plat requires a single policy tag rather than a compressed
 				// tag set, and the highest tag matches the build container policy.
 				"highestPlatformTag": platform.HighestLibcTagString(b.PlatformTag),
@@ -386,10 +431,18 @@ var toolkit = []*flow.Tool{
 			}},
 	},
 	{
+		// With a build root, the build runs in a copy of the checkout at the root and
+		// writes the wheel to the dist directory of the checkout.
 		Name: "pypi/build/platform-wheel",
 		Steps: []flow.Step{{
 			Runs: textwrap.Dedent(`
+				{{if .With.buildRoot -}}
+				mkdir -p {{.With.buildRoot}}
+				cp -a . {{.With.buildRoot}}
+				{{.With.locator}}python3 -m build --wheel -n --outdir {{.With.distDir}} {{.With.buildRoot}}{{if and (ne .With.dir ".") (ne .With.dir "")}}/{{.With.dir}}{{end}}
+				{{else -}}
 				{{.With.locator}}python3 -m build --wheel -n{{if and (ne .With.dir ".") (ne .With.dir "")}} {{.With.dir}}{{end}}
+				{{end -}}
 				{{if .With.highestPlatformTag -}}
 				mkdir -p {{.With.distDir}}/repaired
 				AUDITWHEEL="{{.With.locator}}auditwheel"
