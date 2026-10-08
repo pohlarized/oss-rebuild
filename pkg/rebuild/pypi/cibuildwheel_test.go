@@ -5,6 +5,7 @@ package pypi
 
 import (
 	"testing"
+	"time"
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/oss-rebuild/internal/gitx/gitxtest"
@@ -15,6 +16,8 @@ func TestCibuildwheelVersions(t *testing.T) {
 	tests := []struct {
 		name     string
 		workflow string
+		// uploaded only matters for floating tags.
+		uploaded time.Time
 		want     []string
 	}{
 		{
@@ -35,6 +38,37 @@ func TestCibuildwheelVersions(t *testing.T) {
 				    steps:
 				      - uses: pypa/cibuildwheel@main`,
 			want: nil,
+		},
+		{
+			name: "ActionMinorTag",
+			workflow: `
+				jobs:
+				  wheels:
+				    steps:
+				      - uses: pypa/cibuildwheel@v2.16`,
+			uploaded: time.Date(2024, time.January, 1, 0, 0, 0, 0, time.UTC),
+			want:     []string{"2.16.2"},
+		},
+		{
+			name: "ActionMinorTagBeforeSeries",
+			workflow: `
+				jobs:
+				  wheels:
+				    steps:
+				      - uses: pypa/cibuildwheel@v2.16`,
+			uploaded: time.Date(2023, time.January, 1, 0, 0, 0, 0, time.UTC),
+			want:     nil,
+		},
+		{
+			// NOTE: cibuildwheel publishes no major tags.
+			name: "ActionMajorTag",
+			workflow: `
+				jobs:
+				  wheels:
+				    steps:
+				      - uses: pypa/cibuildwheel@v2`,
+			uploaded: time.Date(2024, time.January, 1, 0, 0, 0, 0, time.UTC),
+			want:     nil,
 		},
 		{
 			name: "ActionCommit",
@@ -131,7 +165,7 @@ func TestCibuildwheelVersions(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			got := cibuildwheelVersions([]byte(textwrap.Dedent(tc.workflow)), testPins)
+			got := cibuildwheelVersions([]byte(textwrap.Dedent(tc.workflow)), testPins, tc.uploaded)
 			if diff := cmp.Diff(tc.want, got); diff != "" {
 				t.Errorf("cibuildwheelVersions() returned diff (-want +got):\n%s", diff)
 			}
@@ -181,7 +215,7 @@ func TestExtractCibuildwheelVersion(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			repo := must(gitxtest.CreateRepo([]gitxtest.Commit{{ID: "initial-commit", Files: tc.files}}, nil))
 			commit := must(repo.CommitObject(repo.Commits["initial-commit"]))
-			got, err := extractCibuildwheelVersion(must(commit.Tree()), testPins)
+			got, err := extractCibuildwheelVersion(must(commit.Tree()), testPins, time.Time{})
 			if err != nil {
 				t.Fatalf("extractCibuildwheelVersion() returned error: %v", err)
 			}

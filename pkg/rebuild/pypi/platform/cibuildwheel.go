@@ -4,6 +4,7 @@
 package platform
 
 import (
+	"strings"
 	"time"
 
 	"github.com/google/oss-rebuild/internal/semver"
@@ -97,6 +98,24 @@ func (p CibuildwheelPinTable) VersionTaggedAt(commit string) (version string, ok
 		}
 	}
 	return "", false
+}
+
+// LatestInSeries returns the highest cibuildwheel version of the "major.minor"
+// series that was published at or before t. cibuildwheel moves the floating
+// minor tag of its action, such as v2.16, to each release of the series, so
+// this is the version that a step using the tag ran at t. ok is false if no
+// release of the series had been published by t.
+func (p CibuildwheelPinTable) LatestInSeries(series string, t time.Time) (version string, ok bool) {
+	prefix := series + "."
+	for _, rel := range p {
+		if !strings.HasPrefix(rel.Version, prefix) || rel.Published.After(t) {
+			continue
+		}
+		if version == "" || semver.Cmp(rel.Version, version) > 0 {
+			version = rel.Version
+		}
+	}
+	return version, version != ""
 }
 
 // reference returns the reference to the image in repo. The digest takes

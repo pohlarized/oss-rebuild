@@ -232,6 +232,79 @@ func TestCibuildwheelPinTable_VersionTaggedAt(t *testing.T) {
 	}
 }
 
+func TestCibuildwheelPinTable_LatestInSeries(t *testing.T) {
+	day := func(d int) time.Time { return time.Date(2025, time.January, d, 0, 0, 0, 0, time.UTC) }
+	pins := CibuildwheelPinTable{
+		{Version: "2.16.0", Published: day(1)},
+		{Version: "2.16.2", Published: day(5)},
+		{Version: "2.17.0", Published: day(7)},
+		{Version: "2.16.3", Published: day(9)},
+		{Version: "2.1.0", Published: day(11)},
+	}
+	type result struct {
+		Version string
+		OK      bool
+	}
+	tests := []struct {
+		name   string
+		series string
+		t      time.Time
+		want   result
+	}{
+		{
+			name:   "BeforeFirstRelease",
+			series: "2.16",
+			t:      day(0),
+			want:   result{},
+		},
+		{
+			name:   "AtPublishTime",
+			series: "2.16",
+			t:      day(1),
+			want:   result{Version: "2.16.0", OK: true},
+		},
+		{
+			name:   "LatestPatch",
+			series: "2.16",
+			t:      day(6),
+			want:   result{Version: "2.16.2", OK: true},
+		},
+		{
+			name:   "IgnoresNewerSeries",
+			series: "2.16",
+			t:      day(8),
+			want:   result{Version: "2.16.2", OK: true},
+		},
+		{
+			name:   "MaintenanceReleaseAfterNewerSeries",
+			series: "2.16",
+			t:      day(10),
+			want:   result{Version: "2.16.3", OK: true},
+		},
+		{
+			name:   "SeriesIsNotAPrefix",
+			series: "2.1",
+			t:      day(10),
+			want:   result{},
+		},
+		{
+			name:   "UnknownSeries",
+			series: "3.0",
+			t:      day(10),
+			want:   result{},
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			var got result
+			got.Version, got.OK = pins.LatestInSeries(tc.series, tc.t)
+			if diff := cmp.Diff(tc.want, got); diff != "" {
+				t.Errorf("LatestInSeries(%q, %v) returned diff (-want +got):\n%s", tc.series, tc.t, diff)
+			}
+		})
+	}
+}
+
 // TestCibuildwheelPins guards the lookups against generated versions that
 // internal/semver cannot order and against ambiguous commits.
 func TestCibuildwheelPins(t *testing.T) {
