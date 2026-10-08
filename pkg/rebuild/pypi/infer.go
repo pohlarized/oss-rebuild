@@ -505,6 +505,7 @@ func inferBuild(ctx context.Context, t rebuild.Target, mux rebuild.RegistryMux, 
 			PlatformTag:  tags.Platform,
 			Requirements: reqs,
 			RegistryTime: a.UploadTime,
+			BaseImage:    inferBaseImage(platform.CibuildwheelPins, tags.Platform, a.UploadTime),
 		}, nil
 	} else {
 		return &PureWheelBuild{
@@ -519,6 +520,25 @@ func inferBuild(ctx context.Context, t rebuild.Target, mux rebuild.RegistryMux, 
 			PythonTag:     pythonTag(a.Filename, reqs),
 		}, nil
 	}
+}
+
+// inferBaseImage returns the build image that cibuildwheel pinned for
+// platformTag when the wheel was uploaded, according to pins. It returns an
+// empty string, which selects the unpinned image at build time, if no pin is
+// known.
+func inferBaseImage(pins platform.CibuildwheelPinTable, platformTag string, uploaded time.Time) string {
+	repo, err := platform.SelectBaseImage(platformTag)
+	if err != nil {
+		log.Println(errors.Wrap(err, "Failed to select base image"))
+		return ""
+	}
+	ref, version, ok := pins.ImageAt(repo, uploaded)
+	if !ok {
+		log.Printf("No cibuildwheel pin known for %s at %s, using the unpinned image", repo, uploaded.Format(time.RFC3339))
+		return ""
+	}
+	log.Printf("Using base image %s pinned by cibuildwheel %s", ref, version)
+	return ref
 }
 
 var (
