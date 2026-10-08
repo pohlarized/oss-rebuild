@@ -19,6 +19,7 @@ import (
 
 	"github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/plumbing"
+	"github.com/go-git/go-git/v5/plumbing/object"
 	"github.com/go-git/go-git/v5/plumbing/transport"
 	"github.com/google/oss-rebuild/internal/gitx"
 	"github.com/google/oss-rebuild/internal/uri"
@@ -440,8 +441,9 @@ func inferBuild(ctx context.Context, t rebuild.Target, mux rebuild.RegistryMux, 
 		return nil, errors.Wrapf(err, "[INTERNAL] Failed to read upstream artifact")
 	}
 	var reqs []string
+	var zr *zip.Reader
 	if strings.HasSuffix(a.Filename, ".whl") {
-		zr, err := zip.NewReader(bytes.NewReader(body), a.Size)
+		zr, err = zip.NewReader(bytes.NewReader(body), a.Size)
 		if err != nil {
 			return nil, errors.Wrapf(err, "[INTERNAL] Failed to initialize upstream zip reader")
 		}
@@ -510,6 +512,7 @@ func inferBuild(ctx context.Context, t rebuild.Target, mux rebuild.RegistryMux, 
 			Requirements: reqs,
 			RegistryTime: a.UploadTime,
 			BaseImage:    inferBaseImage(platform.CibuildwheelPins, tags.Platform, cibwVersion, a.UploadTime),
+			BuildRoot:    inferBuildRoot(zr, tree),
 		}, nil
 	} else {
 		return &PureWheelBuild{
@@ -551,6 +554,34 @@ func inferBaseImage(pins platform.CibuildwheelPinTable, platformTag, cibwVersion
 	}
 	log.Printf("Using base image %s pinned by cibuildwheel %s", ref, version)
 	return ref
+}
+
+// inferBuildRoot returns the absolute path that upstream built the repository
+// at, as recorded in the debug info of the wheel's extension modules. It
+// returns an empty string, which builds in the checkout, if the debug info
+// records no root, the checkout itself or a root that the build step cannot
+// use.
+func inferBuildRoot(zr *zip.Reader, tree *object.Tree) string {
+	root, skipped, err := buildRootFromDWARF(zr, tree)
+	if len(skipped) > 0 {
+		log.Printf("Skipped %d modules whose debug info could not be read while inferring the build root, first: %v", len(skipped), skipped[0])
+	}
+	if err != nil {
+		log.Println(errors.Wrap(err, "Failed to read the build root from DWARF"))
+	}
+	switch {
+	case root == "":
+		return ""
+	case root == checkoutDir:
+		log.Printf("Upstream built in %s, which is the checkout, so no build root is needed", root)
+		return ""
+	}
+	if err := validateBuildRoot(root); err != nil {
+		log.Println(errors.Wrap(err, "Ignoring the build root from DWARF"))
+		return ""
+	}
+	log.Printf("Using build root %s from DWARF", root)
+	return root
 }
 
 var (
