@@ -135,6 +135,7 @@ type PlatformWheelBuild struct {
 	Requirements []string                       `json:"requirements" yaml:"requirements"`
 	PlatformTag  string                         `json:"platform_tag,omitempty" yaml:"platform_tag,omitempty"`
 	SystemDeps   []sysdeps.DependencyIdentifier `json:"system_deps,omitempty" yaml:"system_deps,omitempty"`
+	StripModes   map[string]string              `json:"strip_modes,omitempty" yaml:"strip_modes,omitempty"`
 	RegistryTime time.Time                      `json:"registry_time" yaml:"registry_time,omitempty"`
 }
 
@@ -160,7 +161,7 @@ func (b *PlatformWheelBuild) ToWorkflow() (*rebuild.WorkflowStrategy, error) {
 		return "dist"
 	}()
 	targetOS := rebuild.MapOS(baseImage)
-	var packagesJSON, unmappableJSON, extractedJSON string
+	var packagesJSON, unmappableJSON, extractedJSON, stripModesJSON string
 	if len(b.SystemDeps) > 0 {
 		resolved := sysdeps.DefaultMapper.Map(targetOS, b.SystemDeps)
 		if len(resolved.Packages) > 0 {
@@ -170,6 +171,9 @@ func (b *PlatformWheelBuild) ToWorkflow() (*rebuild.WorkflowStrategy, error) {
 			unmappableJSON = flow.MustToJSON(resolved.Unmappable)
 		}
 		extractedJSON = flow.MustToJSON(b.SystemDeps)
+	}
+	if len(b.StripModes) > 0 {
+		stripModesJSON = flow.MustToJSON(b.StripModes)
 	}
 	return &rebuild.WorkflowStrategy{
 		Location: b.Location,
@@ -204,11 +208,13 @@ func (b *PlatformWheelBuild) ToWorkflow() (*rebuild.WorkflowStrategy, error) {
 				"highestPlatformTag": platform.HighestLibcTagString(b.PlatformTag),
 				"targetPlatformTag":  b.PlatformTag,
 				"legacyWheel":        needsLegacyWheel(b.Requirements),
+				"stripModes":         stripModesJSON,
 			},
 		}},
 		OutputDir: distDir,
 	}, nil
 }
+
 
 // wheel 0.38.0 added the `wheel tags` CLI subcommand.
 const wheelTagsMinVersion = "0.38.0"
@@ -470,8 +476,76 @@ var toolkit = []*flow.Tool{
 				fi
 				{{- else -}}
 				{{.With.locator}}python3 -m wheel tags --remove --platform-tag {{.With.targetPlatformTag}} {{.With.distDir}}/*.whl
-				{{- end -}}
-				{{- end -}}`)[1:],
+				{{- end}}
+				{{- end}}
+				{{- if .With.stripModes}}
+				cat << 'EOF' > /tmp/strip_wheels.py
+				import base64
+				import hashlib
+				import json
+				import os
+				from pathlib import Path
+				import re
+				import subprocess
+				import sys
+				import tempfile
+				import zipfile
+
+				dist_dir = Path(sys.argv[1])
+				strip_modes = json.loads(sys.argv[2])
+
+				for whl in sorted(dist_dir.glob("*.whl")):
+				    tmp_whl = whl.with_suffix(".tmp.whl")
+				    modified = False
+				    with zipfile.ZipFile(whl, "r") as zin:
+				        items = zin.infolist()
+				        for item in items:
+				            base = Path(item.filename).name
+				            unhashed = re.sub(r'-[0-9a-fA-F]{8,}\.so', '.so', base)
+				            if strip_modes.get(item.filename) or strip_modes.get(base) or strip_modes.get(unhashed):
+				                modified = True
+				                break
+				        if not modified:
+				            continue
+				        with zipfile.ZipFile(tmp_whl, "w") as zout:
+				            record_item = None
+				            records = {}
+				            for item in items:
+				                content = zin.read(item.filename)
+				                if item.filename.endswith(".dist-info/RECORD"):
+				                    record_item = item
+				                    continue
+				                base = Path(item.filename).name
+				                unhashed = re.sub(r'-[0-9a-fA-F]{8,}\.so', '.so', base)
+				                mode = strip_modes.get(item.filename) or strip_modes.get(base) or strip_modes.get(unhashed)
+				                if mode:
+				                    with tempfile.NamedTemporaryFile(delete=False) as tf:
+				                        tf.write(content)
+				                        t_name = tf.name
+				                    try:
+				                        if mode == "all":
+				                            subprocess.run(["strip", "-s", t_name], check=True)
+				                        elif mode == "debug":
+				                            subprocess.run(["objcopy", "-R", ".debug_*", "-R", ".zdebug_*", "-R", ".gdb_index", t_name], check=True)
+				                        with open(t_name, "rb") as tf:
+				                            content = tf.read()
+				                    finally:
+				                        if os.path.exists(t_name):
+				                            os.remove(t_name)
+				                zout.writestr(item, content)
+				                digest = base64.urlsafe_b64encode(hashlib.sha256(content).digest()).decode("latin1").rstrip("=")
+				                records[item.filename] = f"sha256={digest},{len(content)}"
+				            if record_item:
+				                rec_lines = [f"{fn},{records[fn]}" for fn in sorted(records.keys())]
+				                rec_lines.append(f"{record_item.filename},,")
+				                zout.writestr(record_item, "\n".join(rec_lines) + "\n")
+				    if modified:
+				        tmp_whl.replace(whl)
+				EOF
+				{{.With.locator}}python3 /tmp/strip_wheels.py {{.With.distDir}} '{{.With.stripModes}}'
+				rm -f /tmp/strip_wheels.py
+				{{- end}}`)[1:],
 		}},
 	},
 }
+

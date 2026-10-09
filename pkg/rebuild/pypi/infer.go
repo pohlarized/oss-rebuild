@@ -442,6 +442,7 @@ func inferBuild(ctx context.Context, t rebuild.Target, mux rebuild.RegistryMux, 
 	}
 	var reqs []string
 	var sysdepsList []sysdeps.DependencyIdentifier
+	var stripModes map[string]string
 	if strings.HasSuffix(a.Filename, ".whl") {
 		zr, err := zip.NewReader(bytes.NewReader(body), a.Size)
 		if err != nil {
@@ -456,6 +457,12 @@ func inferBuild(ctx context.Context, t rebuild.Target, mux rebuild.RegistryMux, 
 			log.Println(errors.Wrap(err, "extracting wheel ELF dependencies"))
 		} else {
 			sysdepsList = append(sysdepsList, wheelSysdeps...)
+		}
+		modes, err := sysdeps.ExtractWheelStripModes(zr)
+		if err != nil {
+			log.Println(errors.Wrap(err, "extracting wheel strip modes"))
+		} else if len(modes) > 0 {
+			stripModes = modes
 		}
 	} else if strings.HasSuffix(a.Filename, ".tar.gz") {
 		// For .tar.gz files (source distributions), we don't infer requirements from the archive
@@ -518,9 +525,11 @@ func inferBuild(ctx context.Context, t rebuild.Target, mux rebuild.RegistryMux, 
 			PlatformTag:  tags.Platform,
 			Requirements: reqs,
 			SystemDeps:   sysdeps.DeduplicateIdentifiers(sysdepsList),
+			StripModes:   stripModes,
 			RegistryTime: a.UploadTime,
 		}, nil
 	} else {
+
 		return &PureWheelBuild{
 			Location: rebuild.Location{
 				Repo: rcfg.URI,
