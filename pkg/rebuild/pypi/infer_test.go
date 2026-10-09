@@ -93,6 +93,28 @@ func TestInferRequirements(t *testing.T) {
 	}
 }
 
+func TestExtractGeneratorHeader(t *testing.T) {
+	tests := []struct {
+		name  string
+		wheel string
+		want  string
+	}{
+		{"bdist_wheel", "Wheel-Version: 1.0\nGenerator: bdist_wheel (0.40.0)\nTag: py3-none-any\n", "bdist_wheel (0.40.0)"},
+		{"setuptools", "Wheel-Version: 1.0\nGenerator: setuptools (82.0.1)\nRoot-Is-Purelib: false\n", "setuptools (82.0.1)"},
+		{"flit", "Wheel-Version: 1.0\nGenerator: flit 3.12.0\nRoot-Is-Purelib: true\n", "flit 3.12.0"},
+		{"no generator", "Wheel-Version: 1.0\nRoot-Is-Purelib: true\n", ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			zr := wheelZipReader(t, "testpkg", "1.0", tt.wheel, "Metadata-Version: 2.1\nName: testpkg\n")
+			got := extractGeneratorHeader("testpkg", "1.0", zr)
+			if got != tt.want {
+				t.Errorf("extractGeneratorHeader() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestRequirementName(t *testing.T) {
 	tests := []struct {
 		req  string

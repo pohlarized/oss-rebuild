@@ -250,6 +250,26 @@ func inferRequirements(name, version string, zr *zip.Reader) ([]string, error) {
 	return reqs, nil
 }
 
+// extractGeneratorHeader extracts the raw Generator header value from a wheel's WHEEL file.
+func extractGeneratorHeader(name, version string, zr *zip.Reader) string {
+	distInfoDir, err := getDistInfoDir(name, version, zr)
+	if err != nil {
+		distInfoDir = expectedDistInfoDir(name, version)
+	}
+	wheelPath := path.Join(distInfoDir, "WHEEL")
+	wheel, err := getFile(wheelPath, zr)
+	if err != nil {
+		return ""
+	}
+	for _, line := range bytes.Split(wheel, []byte("\n")) {
+		line = bytes.TrimRight(line, "\r")
+		if bytes.HasPrefix(line, []byte("Generator:")) {
+			return string(bytes.TrimSpace(bytes.TrimPrefix(line, []byte("Generator:"))))
+		}
+	}
+	return ""
+}
+
 // normalizeName applies PyPA name normalization so that equivalent spellings
 // of a distribution name, like "Flit.Core" and "flit_core", compare equal.
 // https://packaging.python.org/en/latest/specifications/name-normalization/
@@ -442,6 +462,7 @@ func inferBuild(ctx context.Context, t rebuild.Target, mux rebuild.RegistryMux, 
 	}
 	var reqs []string
 	var sysdepsList []sysdeps.DependencyIdentifier
+	var generator string
 	if strings.HasSuffix(a.Filename, ".whl") {
 		zr, err := zip.NewReader(bytes.NewReader(body), a.Size)
 		if err != nil {
@@ -451,6 +472,7 @@ func inferBuild(ctx context.Context, t rebuild.Target, mux rebuild.RegistryMux, 
 		if err != nil {
 			return nil, err
 		}
+		generator = extractGeneratorHeader(release.Name, version, zr)
 		wheelSysdeps, err := sysdeps.ExtractWheelElfDependencies(zr)
 		if err != nil {
 			log.Println(errors.Wrap(err, "extracting wheel ELF dependencies"))
@@ -519,6 +541,7 @@ func inferBuild(ctx context.Context, t rebuild.Target, mux rebuild.RegistryMux, 
 			Requirements: reqs,
 			SystemDeps:   sysdeps.DeduplicateIdentifiers(sysdepsList),
 			RegistryTime: a.UploadTime,
+			Generator:    generator,
 		}, nil
 	} else {
 		return &PureWheelBuild{
