@@ -132,6 +132,8 @@ type PlatformWheelBuild struct {
 	rebuild.Location
 	PythonTag    string                         `json:"python_tag,omitempty" yaml:"python_tag,omitempty"`
 	ABITag       string                         `json:"abi_tag,omitempty" yaml:"abi_tag,omitempty"`
+	UpstreamPythonInclude string `json:"upstream_python_include,omitempty" yaml:"upstream_python_include,omitempty"`
+	UpstreamSitePackages  string `json:"upstream_site_packages,omitempty" yaml:"upstream_site_packages,omitempty"`
 	Requirements []string                       `json:"requirements" yaml:"requirements"`
 	PlatformTag  string                         `json:"platform_tag,omitempty" yaml:"platform_tag,omitempty"`
 	SystemDeps   []sysdeps.DependencyIdentifier `json:"system_deps,omitempty" yaml:"system_deps,omitempty"`

@@ -442,6 +442,8 @@ func inferBuild(ctx context.Context, t rebuild.Target, mux rebuild.RegistryMux, 
 	}
 	var reqs []string
 	var sysdepsList []sysdeps.DependencyIdentifier
+	var upstreamPythonInclude string
+	var upstreamSitePackages string
 	if strings.HasSuffix(a.Filename, ".whl") {
 		zr, err := zip.NewReader(bytes.NewReader(body), a.Size)
 		if err != nil {
@@ -451,6 +453,32 @@ func inferBuild(ctx context.Context, t rebuild.Target, mux rebuild.RegistryMux, 
 		if err != nil {
 			return nil, err
 		}
+
+		for _, f := range zr.File {
+			if strings.HasSuffix(f.Name, ".so") {
+				rc, err := f.Open()
+				if err == nil {
+					soBytes, _ := io.ReadAll(rc)
+					rc.Close()
+					pythonIncRegex := re.MustCompile("/opt/[^/\\x00]+/c?python[^/\\x00]+/include/python[^/\\x00]+")
+					pipEnvRegex := re.MustCompile("/tmp/pip-build-env[^/\\x00]+")
+					if upstreamPythonInclude == "" {
+						if m := pythonIncRegex.Find(soBytes); m != nil {
+							upstreamPythonInclude = string(m)
+						}
+					}
+					if upstreamSitePackages == "" {
+						if m := pipEnvRegex.Find(soBytes); m != nil {
+							upstreamSitePackages = string(m)
+						}
+					}
+				}
+				if upstreamPythonInclude != "" && upstreamSitePackages != "" {
+					break
+				}
+			}
+		}
+
 		wheelSysdeps, err := sysdeps.ExtractWheelElfDependencies(zr)
 		if err != nil {
 			log.Println(errors.Wrap(err, "extracting wheel ELF dependencies"))
@@ -519,6 +547,8 @@ func inferBuild(ctx context.Context, t rebuild.Target, mux rebuild.RegistryMux, 
 			Requirements: reqs,
 			SystemDeps:   sysdeps.DeduplicateIdentifiers(sysdepsList),
 			RegistryTime: a.UploadTime,
+			UpstreamPythonInclude: upstreamPythonInclude,
+			UpstreamSitePackages: upstreamSitePackages,
 		}, nil
 	} else {
 		return &PureWheelBuild{
