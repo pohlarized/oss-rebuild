@@ -21,6 +21,7 @@ type PureWheelBuild struct {
 	PythonTag     string    `json:"python_tag,omitempty" yaml:"python_tag,omitempty"`
 	Requirements  []string  `json:"requirements" yaml:"requirements"`
 	RegistryTime  time.Time `json:"registry_time" yaml:"registry_time,omitempty"`
+	CythonTrace   string    `json:"cython_trace,omitempty" yaml:"cython_trace,omitempty"`
 }
 
 var _ rebuild.Strategy = &PureWheelBuild{}
@@ -47,10 +48,11 @@ func (b *PureWheelBuild) ToWorkflow() *rebuild.WorkflowStrategy {
 		Build: []flow.Step{{
 			Uses: "pypi/build/wheel",
 			With: map[string]string{
-				"dir":        b.Location.Dir,
-				"locator":    "/deps/bin/",
-				"venvOnPath": needsVenvOnPath(b.Requirements),
-				"pythonTag":  b.PythonTag,
+				"dir":         b.Location.Dir,
+				"locator":     "/deps/bin/",
+				"venvOnPath":  needsVenvOnPath(b.Requirements),
+				"pythonTag":   b.PythonTag,
+				"cythonTrace": b.CythonTrace,
 			},
 		}},
 		OutputDir: func() string {
@@ -82,6 +84,7 @@ type SdistBuild struct {
 	PythonVersion string    `json:"python_version" yaml:"python_version"`
 	Requirements  []string  `json:"requirements" yaml:"requirements"`
 	RegistryTime  time.Time `json:"registry_time" yaml:"registry_time,omitempty"`
+	CythonTrace   string    `json:"cython_trace,omitempty" yaml:"cython_trace,omitempty"`
 }
 
 var _ rebuild.Strategy = &SdistBuild{}
@@ -108,9 +111,10 @@ func (b *SdistBuild) ToWorkflow() *rebuild.WorkflowStrategy {
 		Build: []flow.Step{{
 			Uses: "pypi/build/sdist",
 			With: map[string]string{
-				"dir":        b.Location.Dir,
-				"locator":    "/deps/bin/",
-				"venvOnPath": needsVenvOnPath(b.Requirements),
+				"dir":         b.Location.Dir,
+				"locator":     "/deps/bin/",
+				"venvOnPath":  needsVenvOnPath(b.Requirements),
+				"cythonTrace": b.CythonTrace,
 			},
 		}},
 		OutputDir: func() string {
@@ -136,6 +140,7 @@ type PlatformWheelBuild struct {
 	PlatformTag  string                         `json:"platform_tag,omitempty" yaml:"platform_tag,omitempty"`
 	SystemDeps   []sysdeps.DependencyIdentifier `json:"system_deps,omitempty" yaml:"system_deps,omitempty"`
 	RegistryTime time.Time                      `json:"registry_time" yaml:"registry_time,omitempty"`
+	CythonTrace  string                         `json:"cython_trace,omitempty" yaml:"cython_trace,omitempty"`
 }
 
 var _ rebuild.Strategy = &PlatformWheelBuild{}
@@ -204,6 +209,7 @@ func (b *PlatformWheelBuild) ToWorkflow() (*rebuild.WorkflowStrategy, error) {
 				"highestPlatformTag": platform.HighestLibcTagString(b.PlatformTag),
 				"targetPlatformTag":  b.PlatformTag,
 				"legacyWheel":        needsLegacyWheel(b.Requirements),
+				"cythonTrace":        b.CythonTrace,
 			},
 		}},
 		OutputDir: distDir,
@@ -422,7 +428,7 @@ var toolkit = []*flow.Tool{
 				{{- if .With.pythonTag -}}
 				printf '[bdist_wheel]\npython-tag = {{.With.pythonTag}}\n' >~/.pydistutils.cfg
 				{{end -}}
-				{{if .With.venvOnPath}}PATH={{.With.locator}}:$PATH {{end}}{{.With.locator}}python3 -m build --wheel -n{{if and (ne .With.dir ".") (ne .With.dir "")}} {{.With.dir}}{{end}}`)[1:],
+				{{if .With.cythonTrace}}CYTHON_TRACE={{.With.cythonTrace}} {{end}}{{if .With.venvOnPath}}PATH={{.With.locator}}:$PATH {{end}}{{.With.locator}}python3 -m build --wheel -n{{if and (ne .With.dir ".") (ne .With.dir "")}} {{.With.dir}}{{end}}`)[1:],
 		}},
 	},
 	{
@@ -430,14 +436,14 @@ var toolkit = []*flow.Tool{
 		Steps: []flow.Step{
 			{
 				Runs: textwrap.Dedent(`
-				{{if .With.venvOnPath}}PATH={{.With.locator}}:$PATH {{end}}{{.With.locator}}python3 -m build --sdist -n{{if and (ne .With.dir ".") (ne .With.dir "")}} {{.With.dir}}{{end}}`)[1:],
+				{{if .With.cythonTrace}}CYTHON_TRACE={{.With.cythonTrace}} {{end}}{{if .With.venvOnPath}}PATH={{.With.locator}}:$PATH {{end}}{{.With.locator}}python3 -m build --sdist -n{{if and (ne .With.dir ".") (ne .With.dir "")}} {{.With.dir}}{{end}}`)[1:],
 			}},
 	},
 	{
 		Name: "pypi/build/platform-wheel",
 		Steps: []flow.Step{{
 			Runs: textwrap.Dedent(`
-				{{.With.locator}}python3 -m build --wheel -n{{if and (ne .With.dir ".") (ne .With.dir "")}} {{.With.dir}}{{end}}
+				{{if .With.cythonTrace}}CYTHON_TRACE={{.With.cythonTrace}} {{end}}{{.With.locator}}python3 -m build --wheel -n{{if and (ne .With.dir ".") (ne .With.dir "")}} {{.With.dir}}{{end}}
 				{{if .With.highestPlatformTag -}}
 				mkdir -p {{.With.distDir}}/repaired
 				AUDITWHEEL="{{.With.locator}}auditwheel"
