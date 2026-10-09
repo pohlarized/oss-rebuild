@@ -616,3 +616,76 @@ func TestExtractWheelTags(t *testing.T) {
 		})
 	}
 }
+
+func TestInferWheelRepairRequirements(t *testing.T) {
+	uploadBefore019 := time.Date(2026, time.June, 14, 0, 0, 0, 0, time.UTC)
+	uploadAfter019 := time.Date(2026, time.September, 1, 0, 0, 0, 0, time.UTC)
+
+	tests := []struct {
+		name              string
+		files             map[string][]byte
+		uploadTime        time.Time
+		wantReqs          []string
+		wantAuditwheelVer string
+	}{
+		{
+			name: "auditwheel 6.6.0 from SBOM with patchelf 0.18 padding",
+			files: map[string][]byte{
+				"pkg-1.0.dist-info/sboms/auditwheel.cdx.json": []byte(`{"metadata":{"tools":[{"name":"auditwheel","version":"6.6.0"}]}}`),
+				"pkg/ext.so": bytes.Repeat([]byte("X"), 64),
+			},
+			uploadTime:        uploadBefore019,
+			wantReqs:          []string{"patchelf==0.18.0.0"},
+			wantAuditwheelVer: "==6.6.0",
+		},
+		{
+			name: "auditwheel 6.7.0 from SBOM post-0.19 without patchelf 0.18 padding",
+			files: map[string][]byte{
+				"pkg-1.0.dist-info/sboms/auditwheel.cdx.json": []byte(`{"metadata":{"tools":[{"name":"auditwheel","version":"6.7.0"}]}}`),
+				"pkg/ext.so": []byte("clean binary content without clobber padding"),
+			},
+			uploadTime:        uploadAfter019,
+			wantReqs:          nil,
+			wantAuditwheelVer: "==6.7.0",
+		},
+		{
+			name: "wheel without grafted libs or sbom (pure or canary)",
+			files: map[string][]byte{
+				"pkg/ext.so": []byte("some extension content"),
+			},
+			uploadTime:        uploadBefore019,
+			wantReqs:          nil,
+			wantAuditwheelVer: "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var buf bytes.Buffer
+			zw := zip.NewWriter(&buf)
+			for name, content := range tt.files {
+				w, err := zw.Create(name)
+				if err != nil {
+					t.Fatalf("failed to create zip entry %s: %v", name, err)
+				}
+				if _, err := w.Write(content); err != nil {
+					t.Fatalf("failed to write zip entry %s: %v", name, err)
+				}
+			}
+			if err := zw.Close(); err != nil {
+				t.Fatalf("failed to close zip: %v", err)
+			}
+			zr, err := zip.NewReader(bytes.NewReader(buf.Bytes()), int64(buf.Len()))
+			if err != nil {
+				t.Fatalf("failed to open zip reader: %v", err)
+			}
+			gotReqs, gotAuditwheelVer := inferWheelRepairRequirements(zr, tt.uploadTime)
+			if diff := cmp.Diff(tt.wantReqs, gotReqs); diff != "" {
+				t.Errorf("inferWheelRepairRequirements() reqs diff (-want +got):\n%s", diff)
+			}
+			if gotAuditwheelVer != tt.wantAuditwheelVer {
+				t.Errorf("inferWheelRepairRequirements() auditwheelVer = %q, want %q", gotAuditwheelVer, tt.wantAuditwheelVer)
+			}
+		})
+	}
+}

@@ -7,6 +7,8 @@ import (
 	"archive/zip"
 	"bytes"
 	"context"
+	"debug/elf"
+	"encoding/json"
 	"fmt"
 	"io"
 	"io/fs"
@@ -470,8 +472,10 @@ func inferBuild(ctx context.Context, t rebuild.Target, mux rebuild.RegistryMux, 
 	var hasStackSizeNote bool
 	var stripModes map[string]string
 	var generator string
+	var zr *zip.Reader
 	if strings.HasSuffix(a.Filename, ".whl") {
-		zr, err := zip.NewReader(bytes.NewReader(body), a.Size)
+		var err error
+		zr, err = zip.NewReader(bytes.NewReader(body), a.Size)
 		if err != nil {
 			return nil, errors.Wrapf(err, "[INTERNAL] Failed to initialize upstream zip reader")
 		}
@@ -552,21 +556,28 @@ func inferBuild(ctx context.Context, t rebuild.Target, mux rebuild.RegistryMux, 
 		if strings.Contains(tags.Platform, "musllinux") && strings.HasPrefix(tags.Python, "cp314") && !hasStackSizeNote {
 			stripStackSize = true
 		}
+		var auditwheelVer string
+		if zr != nil {
+			var repairReqs []string
+			repairReqs, auditwheelVer = inferWheelRepairRequirements(zr, a.UploadTime)
+			reqs = mergeRequirements(reqs, repairReqs)
+		}
 		return &PlatformWheelBuild{
 			Location: rebuild.Location{
 				Repo: rcfg.URI,
 				Dir:  dir,
 				Ref:  ref,
 			},
-			PythonTag:      tags.Python,
-			ABITag:         tags.ABI,
-			PlatformTag:    tags.Platform,
-			Requirements:   reqs,
-			SystemDeps:     sysdeps.DeduplicateIdentifiers(sysdepsList),
-			StripModes:     stripModes,
-			RegistryTime:   a.UploadTime,
-			StripStackSize: stripStackSize,
-			Generator:      generator,
+			PythonTag:         tags.Python,
+			ABITag:            tags.ABI,
+			PlatformTag:       tags.Platform,
+			Requirements:      reqs,
+			SystemDeps:        sysdeps.DeduplicateIdentifiers(sysdepsList),
+			StripModes:        stripModes,
+			RegistryTime:      a.UploadTime,
+			StripStackSize:    stripStackSize,
+			Generator:         generator,
+			AuditwheelVersion: auditwheelVer,
 		}, nil
 	} else {
 
@@ -710,4 +721,93 @@ func getFile(fname string, zr *zip.Reader) ([]byte, error) {
 		}
 	}
 	return nil, fs.ErrNotExist
+}
+
+// inferWheelRepairRequirements inspects the upstream wheel archive for auditwheel SBOM metadata,
+// ELF section patterns, and grafted library RPATHs to infer matching auditwheel and patchelf versions.
+func inferWheelRepairRequirements(zr *zip.Reader, uploadTime time.Time) ([]string, string) {
+	var reqs []string
+	var auditwheelVer string
+	var hasPatchelf018 bool
+	var hasGraftedLibs bool
+	var graftedLibsHaveRPATH bool
+
+	// 1. Check for auditwheel SBOM in *.dist-info/sboms/auditwheel.cdx.json
+	for _, f := range zr.File {
+		if strings.HasSuffix(f.Name, "auditwheel.cdx.json") {
+			rc, err := f.Open()
+			if err == nil {
+				var s struct {
+					Metadata struct {
+						Tools []struct {
+							Name    string `json:"name"`
+							Version string `json:"version"`
+						} `json:"tools"`
+					} `json:"metadata"`
+				}
+				if err := json.NewDecoder(rc).Decode(&s); err == nil {
+					for _, tool := range s.Metadata.Tools {
+						if tool.Name == "auditwheel" && tool.Version != "" {
+							auditwheelVer = "==" + tool.Version
+							break
+						}
+					}
+				}
+				rc.Close()
+			}
+			break
+		}
+	}
+
+	// 2. Check ELF files in the wheel for:
+	// - Grafted libraries in .libs/ and their DT_RPATH/DT_RUNPATH
+	// - Clobbered sections containing 'X' bytes (patchelf <= 0.18.0)
+	xPattern := bytes.Repeat([]byte("X"), 32)
+	for _, f := range zr.File {
+		if !strings.HasSuffix(f.Name, ".so") && !strings.Contains(f.Name, ".so.") {
+			continue
+		}
+		rc, err := f.Open()
+		if err != nil {
+			continue
+		}
+		body, err := io.ReadAll(rc)
+		rc.Close()
+		if err != nil {
+			continue
+		}
+		if !hasPatchelf018 && bytes.Contains(body, xPattern) {
+			hasPatchelf018 = true
+		}
+		if strings.Contains(f.Name, ".libs/") {
+			hasGraftedLibs = true
+			if elfFile, err := elf.NewFile(bytes.NewReader(body)); err == nil {
+				if rpaths, err := elfFile.DynString(elf.DT_RPATH); err == nil && len(rpaths) > 0 {
+					graftedLibsHaveRPATH = true
+				}
+				if runpaths, err := elfFile.DynString(elf.DT_RUNPATH); err == nil && len(runpaths) > 0 {
+					graftedLibsHaveRPATH = true
+				}
+			}
+		}
+	}
+
+	// 3. Resolve auditwheel version constraint if not already found in SBOM:
+	if auditwheelVer == "" && hasGraftedLibs {
+		if graftedLibsHaveRPATH {
+			auditwheelVer = ">=6.7.0"
+		} else {
+			auditwheelVer = "<6.7.0"
+		}
+	}
+
+	// 4. Resolve patchelf version:
+	// Patchelf 0.19.0 was released on 2026-06-26. If the binary exhibits 0.18.0 'X' padding,
+	// or if the wheel was uploaded before patchelf 0.19 became standard across PyPA images,
+	// pin patchelf to 0.18.0.0.
+	if hasPatchelf018 || (hasGraftedLibs && uploadTime.Before(time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC))) {
+		reqs = append(reqs, "patchelf==0.18.0.0")
+	}
+
+	return reqs, auditwheelVer
 }
