@@ -138,6 +138,7 @@ type PlatformWheelBuild struct {
 	StripModes     map[string]string              `json:"strip_modes,omitempty" yaml:"strip_modes,omitempty"`
 	RegistryTime   time.Time                      `json:"registry_time" yaml:"registry_time,omitempty"`
 	StripStackSize bool                           `json:"strip_stack_size,omitempty" yaml:"strip_stack_size,omitempty"`
+	Generator      string                         `json:"generator,omitempty" yaml:"generator,omitempty"`
 }
 
 var _ rebuild.Strategy = &PlatformWheelBuild{}
@@ -191,6 +192,12 @@ func (b *PlatformWheelBuild) ToWorkflow() (*rebuild.WorkflowStrategy, error) {
 				"requirements": flow.MustToJSON(b.Requirements),
 				"pythonTag":    b.PythonTag,
 				"abiTag":       b.ABITag,
+				"installWheel": func() string {
+					if !hasRequirement(b.Requirements, "wheel") {
+						return "1"
+					}
+					return ""
+				}(),
 				"venv":         "/deps",
 				"targetOS":     string(targetOS),
 				"packages":     packagesJSON,
@@ -214,6 +221,9 @@ func (b *PlatformWheelBuild) ToWorkflow() (*rebuild.WorkflowStrategy, error) {
 				// tag set, and the highest tag matches the build container policy.
 				"highestPlatformTag": platform.HighestLibcTagString(b.PlatformTag),
 				"targetPlatformTag":  b.PlatformTag,
+				"targetPythonTag":    b.PythonTag,
+				"targetABITag":       b.ABITag,
+				"targetGenerator":    b.Generator,
 				"legacyWheel":        needsLegacyWheel(b.Requirements),
 				"stripModes":         stripModesJSON,
 			},
@@ -432,13 +442,19 @@ var toolkit = []*flow.Tool{
 				},
 			},
 			{
-				Runs: "{{.With.venv}}/bin/pip install build wheel auditwheel",
+				Runs: "{{.With.venv}}/bin/pip install build auditwheel",
 			},
 			{
 				Uses: "pypi/setup-registry",
 				With: map[string]string{
 					"registryTime": "{{.With.registryTime}}",
 				},
+			},
+			{
+				Runs: textwrap.Dedent(`
+					{{- if .With.installWheel -}}
+					{{.With.venv}}/bin/pip install wheel
+					{{end -}}`)[1:],
 			},
 			{
 				Uses: "pypi/install-deps",
@@ -485,26 +501,51 @@ var toolkit = []*flow.Tool{
 				rm -rf {{.With.distDir}}/repaired
 				{{end -}}
 				{{if .With.targetPlatformTag -}}
-				{{if .With.legacyWheel -}}
-				if [ ! -e {{.With.distDir}}/*-{{.With.targetPlatformTag}}.whl ]; then
+				target_pattern="*-{{if and .With.targetPythonTag .With.targetABITag}}{{.With.targetPythonTag}}-{{.With.targetABITag}}-{{end}}{{.With.targetPlatformTag}}.whl"
+				if ! ls {{.With.distDir}}/$target_pattern >/dev/null 2>&1; then
 				  {{.With.locator}}python3 -m wheel unpack {{.With.distDir}}/*.whl -d {{.With.distDir}}/unpacked
 				  rm -f {{.With.distDir}}/*.whl
 				  for f in {{.With.distDir}}/unpacked/*/*.dist-info/WHEEL; do
-				    prefixes=$(sed -n 's/^Tag: \([^-]*-[^-]*\)-.*/\1/p' "$f" | sort -u)
+				    {{- if .With.targetGenerator}}
+				    if grep -q "^Generator:" "$f"; then
+				      sed -i "s|^Generator:.*|Generator: {{.With.targetGenerator}}|" "$f"
+				    else
+				      echo "Generator: {{.With.targetGenerator}}" >> "$f"
+				    fi
+				    {{- end}}
+				    {{- if and .With.targetPythonTag .With.targetABITag}}
+				    sed -i '/^Tag: /d; /^$/d' "$f"
+				    for py in $(echo '{{.With.targetPythonTag}}' | tr '.' ' '); do
+				      for abi in $(echo '{{.With.targetABITag}}' | tr '.' ' '); do
+				        for plat in $(echo '{{.With.targetPlatformTag}}' | tr '.' ' '); do
+				          echo "Tag: $py-$abi-$plat" >> "$f"
+				        done
+				      done
+				    done
+				    {{- else}}
+				    prefixes=$(sed -n 's/^Tag: \([^-]*-[^-]*\)-.*/\1/p' "$f" | awk '!seen[$0]++')
 				    sed -i '/^Tag: /d; /^$/d' "$f"
 				    for p in $prefixes; do
-				      for plat in $(echo '{{.With.targetPlatformTag}}' | tr '.' '\n' | sort -u); do
+				      for plat in $(echo '{{.With.targetPlatformTag}}' | tr '.' ' '); do
 				        echo "Tag: $p-$plat" >> "$f"
 				      done
 				    done
+				    {{- end}}
 				    echo "" >> "$f"
 				  done
 				  {{.With.locator}}python3 -m wheel pack {{.With.distDir}}/unpacked/* -d {{.With.distDir}}
 				  rm -rf {{.With.distDir}}/unpacked
+				  for f in {{.With.distDir}}/*.whl; do
+				    if [ -f "$f" ]; then
+				      namever=$(basename "$f" | sed 's/-[^-]*-[^-]*-[^-]*\.whl$//')
+				      target_wheel="{{.With.distDir}}/${namever}-{{if and .With.targetPythonTag .With.targetABITag}}{{.With.targetPythonTag}}-{{.With.targetABITag}}-{{end}}{{.With.targetPlatformTag}}.whl"
+				      if [ "$f" != "$target_wheel" ]; then
+				        mv "$f" "$target_wheel"
+				      fi
+				      break
+				    fi
+				  done
 				fi
-				{{- else -}}
-				{{.With.locator}}python3 -m wheel tags --remove --platform-tag {{.With.targetPlatformTag}} {{.With.distDir}}/*.whl
-				{{- end}}
 				{{- end}}
 				{{- if .With.stripModes}}
 				cat << 'EOF' > /tmp/strip_wheels.py
