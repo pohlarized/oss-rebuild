@@ -197,3 +197,59 @@ func WheelHasGnuPropertyStackSize(zr *zip.Reader) (bool, error) {
 	}
 	return false, nil
 }
+
+// StripMode indicates the symbol/debug stripping mode for an ELF binary.
+type StripMode string
+
+const (
+	StripModeNone  StripMode = ""
+	StripModeDebug StripMode = "debug"
+	StripModeAll   StripMode = "all"
+)
+
+// ExtractWheelStripModes inspects all ELF shared objects in an upstream wheel and returns
+// a map of file paths to their required strip mode ("debug" or "all") for binaries that
+// lack debug sections or symbol tables in upstream.
+func ExtractWheelStripModes(zr *zip.Reader) (map[string]string, error) {
+	modes := make(map[string]string)
+	for _, f := range zr.File {
+		if !strings.HasSuffix(f.Name, ".so") && !strings.Contains(f.Name, ".so.") {
+			continue
+		}
+		rc, err := f.Open()
+		if err != nil {
+			return nil, errors.Wrapf(err, "opening file %s in wheel", f.Name)
+		}
+		body, err := io.ReadAll(rc)
+		rc.Close()
+		if err != nil {
+			return nil, errors.Wrapf(err, "reading file %s in wheel", f.Name)
+		}
+
+		elfFile, err := elf.NewFile(bytes.NewReader(body))
+		if err != nil {
+			// Skip non-ELF files
+			continue
+		}
+		hasDebug := false
+		for _, s := range elfFile.Sections {
+			if strings.HasPrefix(s.Name, ".debug_") || strings.HasPrefix(s.Name, ".zdebug_") || s.Name == ".gdb_index" {
+				hasDebug = true
+				break
+			}
+		}
+		hasSymtab := elfFile.Section(".symtab") != nil
+		if !hasDebug {
+			mode := string(StripModeDebug)
+			if !hasSymtab {
+				mode = string(StripModeAll)
+			}
+			modes[f.Name] = mode
+			if strings.Contains(f.Name, ".libs/") {
+				unhashed := auditwheelHashPattern.ReplaceAllString(filepath.Base(f.Name), ".so")
+				modes[unhashed] = mode
+			}
+		}
+	}
+	return modes, nil
+}
