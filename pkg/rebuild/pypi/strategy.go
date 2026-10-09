@@ -130,12 +130,13 @@ func (b *SdistBuild) GenerateFor(t rebuild.Target, be rebuild.BuildEnv) (rebuild
 // PlatformWheelBuild aggregates the options controlling a platform-specific wheel build.
 type PlatformWheelBuild struct {
 	rebuild.Location
-	PythonTag    string                         `json:"python_tag,omitempty" yaml:"python_tag,omitempty"`
-	ABITag       string                         `json:"abi_tag,omitempty" yaml:"abi_tag,omitempty"`
-	Requirements []string                       `json:"requirements" yaml:"requirements"`
-	PlatformTag  string                         `json:"platform_tag,omitempty" yaml:"platform_tag,omitempty"`
-	SystemDeps   []sysdeps.DependencyIdentifier `json:"system_deps,omitempty" yaml:"system_deps,omitempty"`
-	RegistryTime time.Time                      `json:"registry_time" yaml:"registry_time,omitempty"`
+	PythonTag      string                         `json:"python_tag,omitempty" yaml:"python_tag,omitempty"`
+	ABITag         string                         `json:"abi_tag,omitempty" yaml:"abi_tag,omitempty"`
+	Requirements   []string                       `json:"requirements" yaml:"requirements"`
+	PlatformTag    string                         `json:"platform_tag,omitempty" yaml:"platform_tag,omitempty"`
+	SystemDeps     []sysdeps.DependencyIdentifier `json:"system_deps,omitempty" yaml:"system_deps,omitempty"`
+	RegistryTime   time.Time                      `json:"registry_time" yaml:"registry_time,omitempty"`
+	StripStackSize bool                           `json:"strip_stack_size,omitempty" yaml:"strip_stack_size,omitempty"`
 }
 
 var _ rebuild.Strategy = &PlatformWheelBuild{}
@@ -191,6 +192,12 @@ func (b *PlatformWheelBuild) ToWorkflow() (*rebuild.WorkflowStrategy, error) {
 				"packages":     packagesJSON,
 				"unmappable":   unmappableJSON,
 				"extracted":    extractedJSON,
+				"stripStackSize": func() string {
+					if b.StripStackSize {
+						return "1"
+					}
+					return ""
+				}(),
 			},
 		}},
 		Build: []flow.Step{{
@@ -290,6 +297,26 @@ var toolkit = []*flow.Tool{
 				    fi
 				  done
 				fi
+				{{- end}}
+				{{- if .With.stripStackSize}}
+				$INTERPRETER -c '
+				import glob, os, re
+				for root in ["/opt/python", "/opt/_internal"]:
+				    for p in glob.glob(root + "/**/_sysconfigdata*.py", recursive=True) + glob.glob(root + "/**/Makefile", recursive=True):
+				        try:
+				            with open(p, "r") as f:
+				                c = f.read()
+				            if "-Wl,-z,stack-size" in c:
+				                with open(p, "w") as f:
+				                    f.write(re.sub(r"-Wl,-z,stack-size=\d+", "", c))
+				        except Exception:
+				            pass
+				    for p in glob.glob(root + "/**/__pycache__/_sysconfigdata*", recursive=True):
+				        try:
+				            os.remove(p)
+				        except Exception:
+				            pass
+				'
 				{{- end}}
 				$INTERPRETER -m venv {{.With.path}}`)[1:],
 		}},
@@ -392,9 +419,10 @@ var toolkit = []*flow.Tool{
 			{
 				Uses: "pypi/setup-venv/manylinux",
 				With: map[string]string{
-					"path":      "{{.With.venv}}",
-					"pythonTag": "{{.With.pythonTag}}",
-					"abiTag":    "{{.With.abiTag}}",
+					"path":           "{{.With.venv}}",
+					"pythonTag":      "{{.With.pythonTag}}",
+					"abiTag":         "{{.With.abiTag}}",
+					"stripStackSize": "{{.With.stripStackSize}}",
 				},
 			},
 			{

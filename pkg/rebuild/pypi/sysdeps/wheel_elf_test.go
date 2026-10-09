@@ -245,3 +245,140 @@ func TestExtractCLibStem(t *testing.T) {
 		})
 	}
 }
+
+func createSyntheticELFWithNote(hasStackSize bool) []byte {
+	buf := new(bytes.Buffer)
+	shstrtab := []byte("\x00.shstrtab\x00.note.gnu.property\x00")
+	shstrtabOffset := uint32(1)
+	noteNameOffset := uint32(11)
+
+	// Note data:
+	// namesz: 4 ("GNU\0"), descsz: 16, type: 5
+	noteBuf := new(bytes.Buffer)
+	binary.Write(noteBuf, binary.LittleEndian, uint32(4))
+	binary.Write(noteBuf, binary.LittleEndian, uint32(16))
+	binary.Write(noteBuf, binary.LittleEndian, uint32(5))
+	noteBuf.Write([]byte("GNU\x00"))
+	if hasStackSize {
+		// pr_type: 1 (GNU_PROPERTY_STACK_SIZE), pr_datasz: 8, data: 0x100000 (uint64)
+		binary.Write(noteBuf, binary.LittleEndian, uint32(1))
+		binary.Write(noteBuf, binary.LittleEndian, uint32(8))
+		binary.Write(noteBuf, binary.LittleEndian, uint64(1048576))
+	} else {
+		// pr_type: 0xc0010001 (GNU_PROPERTY_X86_FEATURE_1_AND), pr_datasz: 4, data: 9, 4 bytes padding
+		binary.Write(noteBuf, binary.LittleEndian, uint32(0xc0010001))
+		binary.Write(noteBuf, binary.LittleEndian, uint32(4))
+		binary.Write(noteBuf, binary.LittleEndian, uint32(9))
+		binary.Write(noteBuf, binary.LittleEndian, uint32(0))
+	}
+	noteBytes := noteBuf.Bytes()
+
+	ehdrSize := uint64(64)
+	shdrSize := uint64(64)
+	shnum := uint64(3) // NULL, .shstrtab, .note.gnu.property
+
+	shstrtabFileOffset := ehdrSize
+	noteFileOffset := shstrtabFileOffset + uint64(len(shstrtab))
+	shoff := noteFileOffset + uint64(len(noteBytes))
+
+	// ELF Header
+	ident := [16]byte{0x7f, 'E', 'L', 'F', 2, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0}
+	buf.Write(ident[:])
+	binary.Write(buf, binary.LittleEndian, uint16(3))        // e_type: ET_DYN
+	binary.Write(buf, binary.LittleEndian, uint16(62))       // e_machine: EM_X86_64
+	binary.Write(buf, binary.LittleEndian, uint32(1))        // e_version
+	binary.Write(buf, binary.LittleEndian, uint64(0))        // e_entry
+	binary.Write(buf, binary.LittleEndian, uint64(0))        // e_phoff
+	binary.Write(buf, binary.LittleEndian, uint64(shoff))    // e_shoff
+	binary.Write(buf, binary.LittleEndian, uint32(0))        // e_flags
+	binary.Write(buf, binary.LittleEndian, uint16(ehdrSize)) // e_ehsize
+	binary.Write(buf, binary.LittleEndian, uint16(0))        // e_phentsize
+	binary.Write(buf, binary.LittleEndian, uint16(0))        // e_phnum
+	binary.Write(buf, binary.LittleEndian, uint16(shdrSize)) // e_shentsize
+	binary.Write(buf, binary.LittleEndian, uint16(shnum))    // e_shnum
+	binary.Write(buf, binary.LittleEndian, uint16(1))        // e_shstrndx (.shstrtab index 1)
+
+	// Section contents
+	buf.Write(shstrtab)
+	buf.Write(noteBytes)
+
+	// Section Headers
+	// 0: NULL
+	buf.Write(make([]byte, 64))
+
+	// 1: .shstrtab
+	binary.Write(buf, binary.LittleEndian, uint32(shstrtabOffset)) // sh_name
+	binary.Write(buf, binary.LittleEndian, uint32(3))              // sh_type: SHT_STRTAB
+	binary.Write(buf, binary.LittleEndian, uint64(0))              // sh_flags
+	binary.Write(buf, binary.LittleEndian, uint64(0))              // sh_addr
+	binary.Write(buf, binary.LittleEndian, uint64(shstrtabFileOffset))
+	binary.Write(buf, binary.LittleEndian, uint64(len(shstrtab)))
+	binary.Write(buf, binary.LittleEndian, uint32(0))
+	binary.Write(buf, binary.LittleEndian, uint32(0))
+	binary.Write(buf, binary.LittleEndian, uint64(1))
+	binary.Write(buf, binary.LittleEndian, uint64(0))
+
+	// 2: .note.gnu.property
+	binary.Write(buf, binary.LittleEndian, uint32(noteNameOffset)) // sh_name
+	binary.Write(buf, binary.LittleEndian, uint32(7))              // sh_type: SHT_NOTE
+	binary.Write(buf, binary.LittleEndian, uint64(2))              // sh_flags: SHF_ALLOC
+	binary.Write(buf, binary.LittleEndian, uint64(0))              // sh_addr
+	binary.Write(buf, binary.LittleEndian, uint64(noteFileOffset))
+	binary.Write(buf, binary.LittleEndian, uint64(len(noteBytes)))
+	binary.Write(buf, binary.LittleEndian, uint32(0))
+	binary.Write(buf, binary.LittleEndian, uint32(0))
+	binary.Write(buf, binary.LittleEndian, uint64(8))
+	binary.Write(buf, binary.LittleEndian, uint64(0))
+
+	return buf.Bytes()
+}
+
+func TestWheelHasGnuPropertyStackSize(t *testing.T) {
+	tests := []struct {
+		name  string
+		files map[string][]byte
+		want  bool
+	}{
+		{
+			name: "WithStackSizeProperty",
+			files: map[string][]byte{
+				"mod/_ext.cpython-315-x86_64-linux-musl.so": createSyntheticELFWithNote(true),
+			},
+			want: true,
+		},
+		{
+			name: "WithoutStackSizeProperty",
+			files: map[string][]byte{
+				"mod/_ext.cpython-314-x86_64-linux-musl.so": createSyntheticELFWithNote(false),
+			},
+			want: false,
+		},
+		{
+			name: "NoELFNotes",
+			files: map[string][]byte{
+				"mod/_ext.so": createSyntheticELF([]string{"libc.so.6"}),
+			},
+			want: false,
+		},
+		{
+			name: "NoELFBinaries",
+			files: map[string][]byte{
+				"mod/__init__.py": []byte("# pure python\n"),
+			},
+			want: false,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			zr := createZipWithFiles(tc.files)
+			got, err := WheelHasGnuPropertyStackSize(zr)
+			if err != nil {
+				t.Fatalf("WheelHasGnuPropertyStackSize() error = %v", err)
+			}
+			if got != tc.want {
+				t.Errorf("WheelHasGnuPropertyStackSize() = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}

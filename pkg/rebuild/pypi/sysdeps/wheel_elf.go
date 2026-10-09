@@ -7,6 +7,7 @@ import (
 	"archive/zip"
 	"bytes"
 	"debug/elf"
+	"encoding/binary"
 	"io"
 	"path/filepath"
 	"regexp"
@@ -132,4 +133,67 @@ func extractSonameFromFilename(name string) string {
 		return base
 	}
 	return ""
+}
+
+const gnuPropertyStackSize = 1
+
+// WheelHasGnuPropertyStackSize inspects ELF binaries in zr for .note.gnu.property sections
+// and reports whether any binary contains a GNU_PROPERTY_STACK_SIZE note.
+func WheelHasGnuPropertyStackSize(zr *zip.Reader) (bool, error) {
+	for _, f := range zr.File {
+		if !strings.HasSuffix(f.Name, ".so") && !strings.Contains(f.Name, ".so.") {
+			continue
+		}
+		rc, err := f.Open()
+		if err != nil {
+			return false, errors.Wrapf(err, "opening file %s in wheel", f.Name)
+		}
+		body, err := io.ReadAll(rc)
+		rc.Close()
+		if err != nil {
+			return false, errors.Wrapf(err, "reading file %s in wheel", f.Name)
+		}
+		elfFile, err := elf.NewFile(bytes.NewReader(body))
+		if err != nil {
+			continue
+		}
+		sec := elfFile.Section(".note.gnu.property")
+		if sec == nil {
+			continue
+		}
+		data, err := sec.Data()
+		if err != nil || len(data) < 12 {
+			continue
+		}
+		var byteOrder binary.ByteOrder = binary.LittleEndian
+		if elfFile.ByteOrder != nil {
+			byteOrder = elfFile.ByteOrder
+		}
+		namesz := byteOrder.Uint32(data[0:4])
+		descsz := byteOrder.Uint32(data[4:8])
+		namePadding := (namesz + 3) &^ 3
+		descOffset := 12 + namePadding
+		if int(descOffset+descsz) > len(data) {
+			continue
+		}
+		desc := data[descOffset : descOffset+descsz]
+		var align uint32 = 4
+		if elfFile.Class == elf.ELFCLASS64 {
+			align = 8
+		}
+		pOffset := uint32(0)
+		for pOffset+8 <= uint32(len(desc)) {
+			prType := byteOrder.Uint32(desc[pOffset : pOffset+4])
+			prDatasz := byteOrder.Uint32(desc[pOffset+4 : pOffset+8])
+			if prType == gnuPropertyStackSize {
+				return true, nil
+			}
+			itemLen := 8 + ((prDatasz + (align - 1)) &^ (align - 1))
+			if itemLen < 8 {
+				break
+			}
+			pOffset += itemLen
+		}
+	}
+	return false, nil
 }
