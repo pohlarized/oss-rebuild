@@ -442,6 +442,7 @@ func inferBuild(ctx context.Context, t rebuild.Target, mux rebuild.RegistryMux, 
 	}
 	var reqs []string
 	var sysdepsList []sysdeps.DependencyIdentifier
+	var hasStackSizeNote bool
 	if strings.HasSuffix(a.Filename, ".whl") {
 		zr, err := zip.NewReader(bytes.NewReader(body), a.Size)
 		if err != nil {
@@ -456,6 +457,12 @@ func inferBuild(ctx context.Context, t rebuild.Target, mux rebuild.RegistryMux, 
 			log.Println(errors.Wrap(err, "extracting wheel ELF dependencies"))
 		} else {
 			sysdepsList = append(sysdepsList, wheelSysdeps...)
+		}
+		hasStack, err := sysdeps.WheelHasGnuPropertyStackSize(zr)
+		if err != nil {
+			log.Println(errors.Wrap(err, "checking wheel ELF GNU property notes"))
+		} else {
+			hasStackSizeNote = hasStack
 		}
 	} else if strings.HasSuffix(a.Filename, ".tar.gz") {
 		// For .tar.gz files (source distributions), we don't infer requirements from the archive
@@ -507,18 +514,23 @@ func inferBuild(ctx context.Context, t rebuild.Target, mux rebuild.RegistryMux, 
 		if _, err := platform.ParsePlatformTags(tags.Platform); err != nil {
 			return nil, errors.Wrapf(err, "unsupported platform tag in wheel filename %s", a.Filename)
 		}
+		stripStackSize := false
+		if strings.Contains(tags.Platform, "musllinux") && strings.HasPrefix(tags.Python, "cp314") && !hasStackSizeNote {
+			stripStackSize = true
+		}
 		return &PlatformWheelBuild{
 			Location: rebuild.Location{
 				Repo: rcfg.URI,
 				Dir:  dir,
 				Ref:  ref,
 			},
-			PythonTag:    tags.Python,
-			ABITag:       tags.ABI,
-			PlatformTag:  tags.Platform,
-			Requirements: reqs,
-			SystemDeps:   sysdeps.DeduplicateIdentifiers(sysdepsList),
-			RegistryTime: a.UploadTime,
+			PythonTag:      tags.Python,
+			ABITag:         tags.ABI,
+			PlatformTag:    tags.Platform,
+			Requirements:   reqs,
+			SystemDeps:     sysdeps.DeduplicateIdentifiers(sysdepsList),
+			RegistryTime:   a.UploadTime,
+			StripStackSize: stripStackSize,
 		}, nil
 	} else {
 		return &PureWheelBuild{
