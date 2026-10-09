@@ -130,12 +130,13 @@ func (b *SdistBuild) GenerateFor(t rebuild.Target, be rebuild.BuildEnv) (rebuild
 // PlatformWheelBuild aggregates the options controlling a platform-specific wheel build.
 type PlatformWheelBuild struct {
 	rebuild.Location
-	PythonTag    string                         `json:"python_tag,omitempty" yaml:"python_tag,omitempty"`
-	ABITag       string                         `json:"abi_tag,omitempty" yaml:"abi_tag,omitempty"`
-	Requirements []string                       `json:"requirements" yaml:"requirements"`
-	PlatformTag  string                         `json:"platform_tag,omitempty" yaml:"platform_tag,omitempty"`
-	SystemDeps   []sysdeps.DependencyIdentifier `json:"system_deps,omitempty" yaml:"system_deps,omitempty"`
-	RegistryTime time.Time                      `json:"registry_time" yaml:"registry_time,omitempty"`
+	PythonTag         string                         `json:"python_tag,omitempty" yaml:"python_tag,omitempty"`
+	ABITag            string                         `json:"abi_tag,omitempty" yaml:"abi_tag,omitempty"`
+	Requirements      []string                       `json:"requirements" yaml:"requirements"`
+	PlatformTag       string                         `json:"platform_tag,omitempty" yaml:"platform_tag,omitempty"`
+	SystemDeps        []sysdeps.DependencyIdentifier `json:"system_deps,omitempty" yaml:"system_deps,omitempty"`
+	RegistryTime      time.Time                      `json:"registry_time" yaml:"registry_time,omitempty"`
+	AuditwheelVersion string                         `json:"auditwheel_version,omitempty" yaml:"auditwheel_version,omitempty"`
 }
 
 var _ rebuild.Strategy = &PlatformWheelBuild{}
@@ -182,15 +183,16 @@ func (b *PlatformWheelBuild) ToWorkflow() (*rebuild.WorkflowStrategy, error) {
 		Deps: []flow.Step{{
 			Uses: "pypi/deps/platform-wheel",
 			With: map[string]string{
-				"registryTime": registryTime,
-				"requirements": flow.MustToJSON(b.Requirements),
-				"pythonTag":    b.PythonTag,
-				"abiTag":       b.ABITag,
-				"venv":         "/deps",
-				"targetOS":     string(targetOS),
-				"packages":     packagesJSON,
-				"unmappable":   unmappableJSON,
-				"extracted":    extractedJSON,
+				"registryTime":      registryTime,
+				"requirements":      flow.MustToJSON(b.Requirements),
+				"pythonTag":         b.PythonTag,
+				"abiTag":            b.ABITag,
+				"venv":              "/deps",
+				"targetOS":          string(targetOS),
+				"packages":          packagesJSON,
+				"unmappable":        unmappableJSON,
+				"extracted":         extractedJSON,
+				"auditwheelVersion": b.AuditwheelVersion,
 			},
 		}},
 		Build: []flow.Step{{
@@ -398,13 +400,30 @@ var toolkit = []*flow.Tool{
 				},
 			},
 			{
-				Runs: "{{.With.venv}}/bin/pip install build wheel auditwheel",
+				Runs: "{{.With.venv}}/bin/pip install build wheel",
 			},
 			{
 				Uses: "pypi/setup-registry",
 				With: map[string]string{
 					"registryTime": "{{.With.registryTime}}",
 				},
+			},
+			{
+				Runs: textwrap.Dedent(`
+					{{- if .With.auditwheelVersion -}}
+					TOOL_PYTHON=""
+					for p in /opt/python/cp312*/bin/python /opt/python/cp311*/bin/python /opt/python/cp310*/bin/python /opt/python/cp313*/bin/python /opt/_internal/pipx/venvs/auditwheel/bin/python; do
+					  if [ -x "$p" ]; then
+					    TOOL_PYTHON="$p"
+					    break
+					  fi
+					done
+					if [ -n "$TOOL_PYTHON" ]; then
+					  $TOOL_PYTHON -m venv /opt/auditwheel-venv
+					  /opt/auditwheel-venv/bin/pip install 'auditwheel{{.With.auditwheelVersion}}'
+					  ln -sf /opt/auditwheel-venv/bin/auditwheel /usr/local/bin/auditwheel
+					fi
+					{{- end}}`)[1:],
 			},
 			{
 				Uses: "pypi/install-deps",
@@ -440,6 +459,7 @@ var toolkit = []*flow.Tool{
 				{{.With.locator}}python3 -m build --wheel -n{{if and (ne .With.dir ".") (ne .With.dir "")}} {{.With.dir}}{{end}}
 				{{if .With.highestPlatformTag -}}
 				mkdir -p {{.With.distDir}}/repaired
+				export PATH="{{.With.locator}}:$PATH"
 				AUDITWHEEL="{{.With.locator}}auditwheel"
 				if [ ! -x "$AUDITWHEEL" ]; then
 				  AUDITWHEEL="auditwheel"
