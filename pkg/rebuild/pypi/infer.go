@@ -473,6 +473,7 @@ func inferBuild(ctx context.Context, t rebuild.Target, mux rebuild.RegistryMux, 
 	var hasStackSizeNote bool
 	var stripModes map[string]string
 	var generator string
+	var upstreamPythonVersion string
 	var zr *zip.Reader
 	if strings.HasSuffix(a.Filename, ".whl") {
 		var err error
@@ -485,6 +486,20 @@ func inferBuild(ctx context.Context, t rebuild.Target, mux rebuild.RegistryMux, 
 			return nil, err
 		}
 		generator = extractGeneratorHeader(release.Name, version, zr)
+		pythonVerRegex := re.MustCompile(`/opt/(?:_internal/)?c?python-([\d.]+)/`)
+		for _, f := range zr.File {
+			if strings.HasSuffix(f.Name, ".so") {
+				rc, err := f.Open()
+				if err == nil {
+					soBytes, _ := io.ReadAll(rc)
+					rc.Close()
+					if m := pythonVerRegex.FindSubmatch(soBytes); len(m) == 2 {
+						upstreamPythonVersion = string(m[1])
+						break
+					}
+				}
+			}
+		}
 		wheelSysdeps, err := sysdeps.ExtractWheelElfDependencies(zr)
 		if err != nil {
 			log.Println(errors.Wrap(err, "extracting wheel ELF dependencies"))
@@ -637,17 +652,18 @@ func inferBuild(ctx context.Context, t rebuild.Target, mux rebuild.RegistryMux, 
 				Dir:  dir,
 				Ref:  ref,
 			},
-			PythonTag:         tags.Python,
-			ABITag:            tags.ABI,
-			PlatformTag:       tags.Platform,
-			Requirements:      reqs,
-			SystemDeps:        sysdeps.DeduplicateIdentifiers(sysdepsList),
-			StripModes:        stripModes,
-			RegistryTime:      a.UploadTime,
-			StripStackSize:    stripStackSize,
-			Generator:         generator,
-			AuditwheelVersion: auditwheelVer,
-			CibwEnv:           cibwEnv,
+			PythonTag:             tags.Python,
+			ABITag:                tags.ABI,
+			PlatformTag:           tags.Platform,
+			Requirements:          reqs,
+			SystemDeps:            sysdeps.DeduplicateIdentifiers(sysdepsList),
+			StripModes:            stripModes,
+			RegistryTime:          a.UploadTime,
+			StripStackSize:        stripStackSize,
+			Generator:             generator,
+			AuditwheelVersion:     auditwheelVer,
+			CibwEnv:               cibwEnv,
+			UpstreamPythonVersion: upstreamPythonVersion,
 		}, nil
 	} else {
 
