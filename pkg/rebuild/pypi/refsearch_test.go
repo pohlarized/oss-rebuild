@@ -72,6 +72,7 @@ func TestMatchArchiveBlobs(t *testing.T) {
 		name    string
 		commits []gitxtest.Commit
 		version string
+		tagRef  string
 		want    string // commit ID, or "" for a rejection
 	}{
 		{
@@ -146,10 +147,49 @@ func TestMatchArchiveBlobs(t *testing.T) {
 			version: "2.0.0",
 			want:    "s1",
 		},
+		{
+			// TagRef matching best overlap is preferred directly.
+			name: "tagRef among best overlap preferred",
+			commits: []gitxtest.Commit{
+				{ID: "t1", Time: day(1), Files: gitxtest.FileContent{"pyproject.toml": pyprojectTOML("acme", "2.0.0"), "acme/core.py": coreV2, "acme/util.py": util}},
+				{ID: "t2", Time: day(2), Parent: "t1", Files: gitxtest.FileContent{"README.md": "doc change\n"}},
+			},
+			version: "2.0.0",
+			tagRef:  "t1",
+			want:    "t1",
+		},
+		{
+			// When tagRef has strictly fewer blob matches than an ancestor/commit
+			// that confirms the version, the better-matching commit is preferred.
+			name: "tagRef has fewer matches than content commit",
+			commits: []gitxtest.Commit{
+				{ID: "c1", Time: day(1), Files: gitxtest.FileContent{"pyproject.toml": pyprojectTOML("acme", "2.0.0"), "acme/core.py": coreV2, "acme/util.py": util}},
+				{ID: "c2", Time: day(2), Parent: "c1", Files: gitxtest.FileContent{"acme/core.py": coreV1}},
+			},
+			version: "2.0.0",
+			tagRef:  "c2",
+			want:    "c1",
+		},
+		{
+			// When tagRef has fewer blob matches, but the better-matching commit
+			// declares a contradicting version, tagRef is kept as fallback.
+			name: "tagRef fallback when content commit contradicts version",
+			commits: []gitxtest.Commit{
+				{ID: "k1", Time: day(1), Files: gitxtest.FileContent{"pyproject.toml": pyprojectTOML("acme", "1.0.0"), "acme/core.py": coreV2, "acme/util.py": util}},
+				{ID: "k2", Time: day(2), Parent: "k1", Files: gitxtest.FileContent{"pyproject.toml": pyprojectTOML("acme", "2.0.0"), "acme/core.py": coreV1}},
+			},
+			version: "2.0.0",
+			tagRef:  "k2",
+			want:    "k2",
+		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			repo := must(gitxtest.CreateRepo(tc.commits, nil))
-			ref, err := matchArchiveBlobs(ctx, hashes, "acme", tc.version, repo.Repository)
+			var tagRef string
+			if tc.tagRef != "" {
+				tagRef = repo.Commits[tc.tagRef].String()
+			}
+			ref, err := matchArchiveBlobs(ctx, hashes, "acme", tc.version, tagRef, repo.Repository)
 			if tc.want == "" {
 				if err == nil {
 					t.Errorf("matchArchiveBlobs = %q, nil error, want a rejection", ref)
@@ -167,7 +207,7 @@ func TestMatchArchiveBlobs(t *testing.T) {
 
 	// A blob set absent from the repo entirely is rejected by the scan.
 	repo := must(gitxtest.CreateRepo([]gitxtest.Commit{{ID: "v1", Files: gitxtest.FileContent{"acme/core.py": coreV1}}}, nil))
-	if _, err := matchArchiveBlobs(ctx, []plumbing.Hash{plumbing.ZeroHash}, "acme", "2.0.0", repo.Repository); err == nil {
+	if _, err := matchArchiveBlobs(ctx, []plumbing.Hash{plumbing.ZeroHash}, "acme", "2.0.0", "", repo.Repository); err == nil {
 		t.Errorf("matchArchiveBlobs(no matching blobs) = nil error, want a rejection")
 	}
 }

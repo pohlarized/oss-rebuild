@@ -11,6 +11,7 @@ import (
 	"io"
 	"log"
 	"slices"
+	"strings"
 
 	"github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/plumbing"
@@ -30,13 +31,34 @@ func shortHash(h string) string {
 	return h
 }
 
-// archiveContentRef matches the pure wheel's file blobs against commit trees:
+// findWheel returns the target artifact if it is a wheel, or the pure wheel,
+// or any wheel in the release.
+func findWheel(artifacts []pypireg.Artifact, target string) (*pypireg.Artifact, error) {
+	if target != "" && strings.HasSuffix(target, ".whl") {
+		for _, a := range artifacts {
+			if a.Filename == target {
+				return &a, nil
+			}
+		}
+	}
+	if pure, err := FindPureWheel(artifacts); err == nil {
+		return pure, nil
+	}
+	for _, a := range artifacts {
+		if strings.HasSuffix(a.Filename, ".whl") {
+			return &a, nil
+		}
+	}
+	return nil, errors.New("no wheel in release")
+}
+
+// archiveContentRef matches the wheel's file blobs against commit trees:
 // a wheel built from commit C contains C's file contents verbatim, so C's tree
 // shares those blob hashes. Works without a declared version.
-func archiveContentRef(ctx context.Context, mux rebuild.RegistryMux, pkg, version string, release *pypireg.Release, repo *git.Repository) (string, error) {
-	wheel, err := FindPureWheel(release.Artifacts)
+func archiveContentRef(ctx context.Context, mux rebuild.RegistryMux, pkg, version string, release *pypireg.Release, target, tagRef string, repo *git.Repository) (string, error) {
+	wheel, err := findWheel(release.Artifacts, target)
 	if err != nil {
-		return "", errors.Wrap(err, "no pure wheel")
+		return "", errors.Wrap(err, "no wheel")
 	}
 	rc, err := mux.PyPI.Artifact(ctx, pkg, version, wheel.Filename)
 	if err != nil {
@@ -55,16 +77,21 @@ func archiveContentRef(ctx context.Context, mux rebuild.RegistryMux, pkg, versio
 	if err != nil {
 		return "", errors.Wrap(err, "hashing wheel contents")
 	}
-	return matchArchiveBlobs(ctx, hashes, pkg, version, repo)
+	return matchArchiveBlobs(ctx, hashes, pkg, version, tagRef, repo)
 }
 
 // matchArchiveBlobs returns the commit whose tree contains the most of the
 // given blobs, via gitscan.ExactTreeCount, as vetted and tie-broken by
-// pickByDeclaredVersion.
-func matchArchiveBlobs(ctx context.Context, hashes []plumbing.Hash, pkg, version string, repo *git.Repository) (string, error) {
+// pickByDeclaredVersion. If tagRef is among the best-overlap commits, it is
+// preferred; otherwise, the best-overlap commit declaring the version is preferred.
+func matchArchiveBlobs(ctx context.Context, hashes []plumbing.Hash, pkg, version, tagRef string, repo *git.Repository) (string, error) {
 	closest, matched, total, err := gitscan.ExactTreeCount{}.Search(ctx, repo, hashes)
 	if err != nil {
 		return "", errors.Wrap(err, "searching trees for blob overlap")
+	}
+	if tagRef != "" && slices.Contains(closest, tagRef) {
+		log.Printf("tag matches best blob overlap [pkg=%s,ver=%s,blobs=%d/%d,ref=%s]\n", pkg, version, matched, total, shortHash(tagRef))
+		return tagRef, nil
 	}
 	candidates := make([]*object.Commit, 0, len(closest))
 	for _, h := range closest {
@@ -74,12 +101,19 @@ func matchArchiveBlobs(ctx context.Context, hashes []plumbing.Hash, pkg, version
 		}
 		candidates = append(candidates, c)
 	}
-	pick := pickByDeclaredVersion(ctx, candidates, pkg, version)
+	pick := pickByDeclaredVersion(ctx, candidates, pkg, version, tagRef)
 	if pick == nil {
+		if tagRef != "" {
+			return tagRef, nil
+		}
 		return "", errors.Errorf("no version-consistent blob overlap candidate [best=%d,total=%d,ties=%d]", matched, total, len(candidates))
 	}
 	ref := pick.Hash.String()
-	log.Printf("archive-content match [pkg=%s,ver=%s,blobs=%d/%d,ties=%d,ref=%s]\n", pkg, version, matched, total, len(candidates), shortHash(ref))
+	if tagRef != "" {
+		log.Printf("tag %s had fewer blob matches than archive-content commit %s [pkg=%s,ver=%s,blobs=%d/%d,ties=%d]\n", shortHash(tagRef), shortHash(ref), pkg, version, matched, total, len(candidates))
+	} else {
+		log.Printf("archive-content match [pkg=%s,ver=%s,blobs=%d/%d,ties=%d,ref=%s]\n", pkg, version, matched, total, len(candidates), shortHash(ref))
+	}
 	return ref, nil
 }
 
@@ -89,10 +123,10 @@ func matchArchiveBlobs(ctx context.Context, hashes []plumbing.Hash, pkg, version
 // version keeps its commit in the running, one declaring none leaves it
 // neutral, and one naming another version drops it. Commit time then orders
 // the survivors: the latest confirming candidate, the version's final state,
-// else the earliest neutral one, where the content was introduced, else nil.
+// else the latest neutral one before tag when tagRef is set (or earliest when untagged), else nil.
 // Spellings are compared under the approximate ordering, since PyPI
 // canonicalizes them.
-func pickByDeclaredVersion(ctx context.Context, candidates []*object.Commit, pkg, version string) *object.Commit {
+func pickByDeclaredVersion(ctx context.Context, candidates []*object.Commit, pkg, version, tagRef string) *object.Commit {
 	var confirming, neutral []*object.Commit
 	var dir string
 	for _, c := range candidates {
@@ -112,6 +146,9 @@ func pickByDeclaredVersion(ctx context.Context, candidates []*object.Commit, pkg
 	case len(confirming) > 0:
 		return slices.MaxFunc(confirming, byCommitTime)
 	case len(neutral) > 0:
+		if tagRef != "" {
+			return slices.MaxFunc(neutral, byCommitTime)
+		}
 		return slices.MinFunc(neutral, byCommitTime)
 	}
 	return nil

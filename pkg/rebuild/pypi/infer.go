@@ -137,10 +137,10 @@ func (Rebuilder) CloneRepo(ctx context.Context, t rebuild.Target, repoURI string
 }
 
 // findGitRef resolves the commit a release was built from: a tag naming the
-// version when one exists, else the commit whose tree matches the pure wheel
-// file blobs. A fallback that errors internally is logged and skipped, never
-// aborting the chain.
-func findGitRef(ctx context.Context, mux rebuild.RegistryMux, pkg, version string, release *pypireg.Release, rcfg *rebuild.RepoConfig) (string, error) {
+// findGitRef resolves the commit a release was built from: a tag naming the
+// version when one exists and matches the archive's contents, else the commit
+// whose tree best matches the wheel's file blobs.
+func findGitRef(ctx context.Context, mux rebuild.RegistryMux, pkg, version string, release *pypireg.Release, target string, rcfg *rebuild.RepoConfig) (string, error) {
 	tagHeuristic, err := rebuild.FindTagMatch(pkg, version, rcfg.Repository)
 	if err != nil {
 		return "", errors.Wrapf(err, "[INTERNAL] tag heuristic error")
@@ -156,13 +156,18 @@ func findGitRef(ctx context.Context, mux rebuild.RegistryMux, pkg, version strin
 				return "", errors.Wrapf(err, "Checkout failed [repo=%s,ref=%s]", rcfg.URI, tagHeuristic)
 			}
 		}
-		return tagHeuristic, nil
 	}
-	if ref, err := archiveContentRef(ctx, mux, pkg, version, release, rcfg.Repository); err != nil {
+	if ref, err := archiveContentRef(ctx, mux, pkg, version, release, target, tagHeuristic, rcfg.Repository); err != nil {
 		log.Printf("archive-content search failed [pkg=%s,ver=%s]: %v", pkg, version, err)
+		if tagHeuristic != "" {
+			return tagHeuristic, nil
+		}
 	} else if ref != "" {
-		log.Printf("using archive-content ref: %s", shortHash(ref))
+		log.Printf("using resolved ref: %s", shortHash(ref))
 		return ref, nil
+	}
+	if tagHeuristic != "" {
+		return tagHeuristic, nil
 	}
 	return "", errors.New("no git ref")
 }
@@ -413,7 +418,7 @@ func (Rebuilder) InferStrategy(ctx context.Context, t rebuild.Target, mux rebuil
 			dir = rcfg.Dir
 		}
 	} else {
-		ref, err = findGitRef(ctx, mux, release.Name, version, release, rcfg)
+		ref, err = findGitRef(ctx, mux, release.Name, version, release, t.Artifact, rcfg)
 		if err != nil {
 			return cfg, err
 		}
