@@ -474,6 +474,8 @@ func inferBuild(ctx context.Context, t rebuild.Target, mux rebuild.RegistryMux, 
 	var stripModes map[string]string
 	var generator string
 	var upstreamPythonVersion string
+	var upstreamPythonInclude string
+	var upstreamSitePackages string
 	var zr *zip.Reader
 	if strings.HasSuffix(a.Filename, ".whl") {
 		var err error
@@ -487,16 +489,32 @@ func inferBuild(ctx context.Context, t rebuild.Target, mux rebuild.RegistryMux, 
 		}
 		generator = extractGeneratorHeader(release.Name, version, zr)
 		pythonVerRegex := re.MustCompile(`/opt/(?:_internal/)?c?python-([\d.]+)/`)
+		pythonIncRegex := re.MustCompile("/opt/[^/\\x00]+/c?python[^/\\x00]+/include/python[^/\\x00]+")
+		pipEnvRegex := re.MustCompile("/tmp/pip-build-env[^/\\x00]+")
 		for _, f := range zr.File {
 			if strings.HasSuffix(f.Name, ".so") {
 				rc, err := f.Open()
 				if err == nil {
 					soBytes, _ := io.ReadAll(rc)
 					rc.Close()
-					if m := pythonVerRegex.FindSubmatch(soBytes); len(m) == 2 {
-						upstreamPythonVersion = string(m[1])
-						break
+					if upstreamPythonVersion == "" {
+						if m := pythonVerRegex.FindSubmatch(soBytes); len(m) == 2 {
+							upstreamPythonVersion = string(m[1])
+						}
 					}
+					if upstreamPythonInclude == "" {
+						if m := pythonIncRegex.Find(soBytes); m != nil {
+							upstreamPythonInclude = string(m)
+						}
+					}
+					if upstreamSitePackages == "" {
+						if m := pipEnvRegex.Find(soBytes); m != nil {
+							upstreamSitePackages = string(m)
+						}
+					}
+				}
+				if upstreamPythonVersion != "" && upstreamPythonInclude != "" && upstreamSitePackages != "" {
+					break
 				}
 			}
 		}
@@ -664,6 +682,8 @@ func inferBuild(ctx context.Context, t rebuild.Target, mux rebuild.RegistryMux, 
 			AuditwheelVersion:     auditwheelVer,
 			CibwEnv:               cibwEnv,
 			UpstreamPythonVersion: upstreamPythonVersion,
+			UpstreamPythonInclude: upstreamPythonInclude,
+			UpstreamSitePackages:  upstreamSitePackages,
 		}, nil
 	} else {
 

@@ -143,6 +143,8 @@ type PlatformWheelBuild struct {
 	AuditwheelVersion     string                         `json:"auditwheel_version,omitempty" yaml:"auditwheel_version,omitempty"`
 	CibwEnv               string                         `json:"cibw_env,omitempty" yaml:"cibw_env,omitempty"`
 	UpstreamPythonVersion string                         `json:"upstream_python_version,omitempty" yaml:"upstream_python_version,omitempty"`
+	UpstreamPythonInclude string                         `json:"upstream_python_include,omitempty" yaml:"upstream_python_include,omitempty"`
+	UpstreamSitePackages  string                         `json:"upstream_site_packages,omitempty" yaml:"upstream_site_packages,omitempty"`
 }
 
 var _ rebuild.Strategy = &PlatformWheelBuild{}
