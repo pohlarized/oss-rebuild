@@ -130,22 +130,27 @@ func (b *SdistBuild) GenerateFor(t rebuild.Target, be rebuild.BuildEnv) (rebuild
 // PlatformWheelBuild aggregates the options controlling a platform-specific wheel build.
 type PlatformWheelBuild struct {
 	rebuild.Location
-	PythonTag    string                         `json:"python_tag,omitempty" yaml:"python_tag,omitempty"`
-	ABITag       string                         `json:"abi_tag,omitempty" yaml:"abi_tag,omitempty"`
-	Requirements []string                       `json:"requirements" yaml:"requirements"`
-	PlatformTag  string                         `json:"platform_tag,omitempty" yaml:"platform_tag,omitempty"`
-	SystemDeps   []sysdeps.DependencyIdentifier `json:"system_deps,omitempty" yaml:"system_deps,omitempty"`
-	RegistryTime time.Time                      `json:"registry_time" yaml:"registry_time,omitempty"`
+	PythonTag             string                         `json:"python_tag,omitempty" yaml:"python_tag,omitempty"`
+	ABITag                string                         `json:"abi_tag,omitempty" yaml:"abi_tag,omitempty"`
+	Requirements          []string                       `json:"requirements" yaml:"requirements"`
+	PlatformTag           string                         `json:"platform_tag,omitempty" yaml:"platform_tag,omitempty"`
+	SystemDeps            []sysdeps.DependencyIdentifier `json:"system_deps,omitempty" yaml:"system_deps,omitempty"`
+	BaseImage             string                         `json:"base_image,omitempty" yaml:"base_image,omitempty"`
+	RegistryTime          time.Time                      `json:"registry_time" yaml:"registry_time,omitempty"`
+	UpstreamPythonVersion string                         `json:"upstream_python_version,omitempty" yaml:"upstream_python_version,omitempty"`
 }
 
 var _ rebuild.Strategy = &PlatformWheelBuild{}
 
-func (b *PlatformWheelBuild) BaseImage() (string, error) {
+func (b *PlatformWheelBuild) baseImage() (string, error) {
+	if b.BaseImage != "" {
+		return b.BaseImage, nil
+	}
 	return platform.SelectBaseImage(b.PlatformTag)
 }
 
 func (b *PlatformWheelBuild) ToWorkflow() (*rebuild.WorkflowStrategy, error) {
-	baseImage, err := b.BaseImage()
+	baseImage, err := b.baseImage()
 	if err != nil {
 		return nil, errors.Wrap(err, "selecting base image")
 	}
@@ -196,14 +201,13 @@ func (b *PlatformWheelBuild) ToWorkflow() (*rebuild.WorkflowStrategy, error) {
 		Build: []flow.Step{{
 			Uses: "pypi/build/platform-wheel",
 			With: map[string]string{
-				"dir":     b.Location.Dir,
-				"distDir": distDir,
-				"locator": "/deps/bin/",
-				// auditwheel repair --plat requires a single policy tag rather than a compressed
-				// tag set, and the highest tag matches the build container policy.
-				"highestPlatformTag": platform.HighestLibcTagString(b.PlatformTag),
-				"targetPlatformTag":  b.PlatformTag,
-				"legacyWheel":        needsLegacyWheel(b.Requirements),
+				"dir":                   b.Location.Dir,
+				"distDir":               distDir,
+				"locator":               "/deps/bin/",
+				"highestPlatformTag":    platform.HighestLibcTagString(b.PlatformTag),
+				"targetPlatformTag":     b.PlatformTag,
+				"legacyWheel":           needsLegacyWheel(b.Requirements),
+				"upstreamPythonVersion": b.UpstreamPythonVersion,
 			},
 		}},
 		OutputDir: distDir,
@@ -437,6 +441,27 @@ var toolkit = []*flow.Tool{
 		Name: "pypi/build/platform-wheel",
 		Steps: []flow.Step{{
 			Runs: textwrap.Dedent(`
+				{{- if .With.upstreamPythonVersion -}}
+				for h in /opt/_internal/cpython-*/include/python*/patchlevel.h /opt/python/*/include/python*/patchlevel.h; do
+				  if [ -f "$h" ]; then
+				    python3 -c '
+import sys, re
+v = "{{.With.upstreamPythonVersion}}"
+parts = list(map(int, v.split(".")))
+major, minor, micro = parts[0], parts[1], parts[2]
+hex_val = (major << 24) | (minor << 16) | (micro << 8) | (0xf << 4)
+hpath = sys.argv[1]
+with open(hpath, "r") as f:
+    content = f.read()
+content = re.sub(r"#define\s+PY_MICRO_VERSION\s+\d+", f"#define PY_MICRO_VERSION {micro}", content)
+content = re.sub(r"#define\s+PY_VERSION\s+\"[^\"]+\"", f"#define PY_VERSION \"{v}\"", content)
+content = re.sub(r"#define\s+PY_VERSION_HEX\s+0x[0-9a-fA-F]+", f"#define PY_VERSION_HEX 0x{hex_val:08X}", content)
+with open(hpath, "w") as f:
+    f.write(content)
+' "$h"
+				  fi
+				done
+				{{- end}}
 				{{.With.locator}}python3 -m build --wheel -n{{if and (ne .With.dir ".") (ne .With.dir "")}} {{.With.dir}}{{end}}
 				{{if .With.highestPlatformTag -}}
 				mkdir -p {{.With.distDir}}/repaired

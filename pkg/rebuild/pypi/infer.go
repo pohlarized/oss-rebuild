@@ -442,6 +442,7 @@ func inferBuild(ctx context.Context, t rebuild.Target, mux rebuild.RegistryMux, 
 	}
 	var reqs []string
 	var sysdepsList []sysdeps.DependencyIdentifier
+	var upstreamPythonVersion string
 	if strings.HasSuffix(a.Filename, ".whl") {
 		zr, err := zip.NewReader(bytes.NewReader(body), a.Size)
 		if err != nil {
@@ -450,6 +451,20 @@ func inferBuild(ctx context.Context, t rebuild.Target, mux rebuild.RegistryMux, 
 		reqs, err = inferRequirements(release.Name, version, zr)
 		if err != nil {
 			return nil, err
+		}
+		pythonVerRegex := re.MustCompile(`/opt/(?:_internal/)?c?python-([\d.]+)/`)
+		for _, f := range zr.File {
+			if strings.HasSuffix(f.Name, ".so") {
+				rc, err := f.Open()
+				if err == nil {
+					soBytes, _ := io.ReadAll(rc)
+					rc.Close()
+					if m := pythonVerRegex.FindSubmatch(soBytes); len(m) == 2 {
+						upstreamPythonVersion = string(m[1])
+						break
+					}
+				}
+			}
 		}
 		wheelSysdeps, err := sysdeps.ExtractWheelElfDependencies(zr)
 		if err != nil {
@@ -513,12 +528,13 @@ func inferBuild(ctx context.Context, t rebuild.Target, mux rebuild.RegistryMux, 
 				Dir:  dir,
 				Ref:  ref,
 			},
-			PythonTag:    tags.Python,
-			ABITag:       tags.ABI,
-			PlatformTag:  tags.Platform,
-			Requirements: reqs,
-			SystemDeps:   sysdeps.DeduplicateIdentifiers(sysdepsList),
-			RegistryTime: a.UploadTime,
+			PythonTag:             tags.Python,
+			ABITag:                tags.ABI,
+			PlatformTag:           tags.Platform,
+			Requirements:          reqs,
+			SystemDeps:            sysdeps.DeduplicateIdentifiers(sysdepsList),
+			RegistryTime:          a.UploadTime,
+			UpstreamPythonVersion: upstreamPythonVersion,
 		}, nil
 	} else {
 		return &PureWheelBuild{

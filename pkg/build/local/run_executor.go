@@ -12,6 +12,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/google/oss-rebuild/internal/bufiox"
@@ -240,7 +241,7 @@ func (e *DockerRunExecutor) executeBuild(ctx context.Context, handle *localHandl
 	buildErr := e.cmdExecutor.Execute(ctx, CommandOptions{Output: idBuf}, e.dockerCmd, ComposeDockerStartArgs(plan, argOpts)...)
 	elapsed := rebuild.BuildTimings{}
 	if buildErr != nil {
-		buildErr = errors.Wrap(buildErr, "starting build container")
+		buildErr = errors.Wrapf(buildErr, "starting build container (%s)", strings.TrimSpace(idBuf.String()))
 	} else {
 		slots := map[rebuild.BuildPhase]**time.Duration{rebuild.PhaseSetup: &elapsed.Setup, rebuild.PhaseSource: &elapsed.Source, rebuild.PhaseDeps: &elapsed.Deps, rebuild.PhaseBuild: &elapsed.Build}
 		for _, ph := range plan.Phases() {
