@@ -136,6 +136,7 @@ type PlatformWheelBuild struct {
 	PlatformTag  string                         `json:"platform_tag,omitempty" yaml:"platform_tag,omitempty"`
 	SystemDeps   []sysdeps.DependencyIdentifier `json:"system_deps,omitempty" yaml:"system_deps,omitempty"`
 	RegistryTime time.Time                      `json:"registry_time" yaml:"registry_time,omitempty"`
+	CibwEnv      string                         `json:"cibw_env,omitempty" yaml:"cibw_env,omitempty"`
 }
 
 var _ rebuild.Strategy = &PlatformWheelBuild{}
@@ -204,6 +205,7 @@ func (b *PlatformWheelBuild) ToWorkflow() (*rebuild.WorkflowStrategy, error) {
 				"highestPlatformTag": platform.HighestLibcTagString(b.PlatformTag),
 				"targetPlatformTag":  b.PlatformTag,
 				"legacyWheel":        needsLegacyWheel(b.Requirements),
+				"cibwEnv":            b.CibwEnv,
 			},
 		}},
 		OutputDir: distDir,
@@ -437,6 +439,10 @@ var toolkit = []*flow.Tool{
 		Name: "pypi/build/platform-wheel",
 		Steps: []flow.Step{{
 			Runs: textwrap.Dedent(`
+				export CIBUILDWHEEL=1
+				{{if .With.cibwEnv}}export {{.With.cibwEnv}}{{end}}
+				printf "[build_ext]\nparallel = %s\n" "$(nproc 2>/dev/null || echo 4)" > /tmp/distutils.cfg
+				export DIST_EXTRA_CONFIG=/tmp/distutils.cfg
 				{{.With.locator}}python3 -m build --wheel -n{{if and (ne .With.dir ".") (ne .With.dir "")}} {{.With.dir}}{{end}}
 				{{if .With.highestPlatformTag -}}
 				mkdir -p {{.With.distDir}}/repaired

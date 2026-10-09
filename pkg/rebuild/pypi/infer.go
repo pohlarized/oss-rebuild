@@ -20,6 +20,7 @@ import (
 	"github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/plumbing"
 	"github.com/go-git/go-git/v5/plumbing/transport"
+	"github.com/go-git/go-git/v5/plumbing/object"
 	"github.com/google/oss-rebuild/internal/gitx"
 	"github.com/google/oss-rebuild/internal/uri"
 	"github.com/google/oss-rebuild/internal/versionx"
@@ -462,6 +463,7 @@ func inferBuild(ctx context.Context, t rebuild.Target, mux rebuild.RegistryMux, 
 		// We'll get them from pyproject.toml below
 		reqs = []string{}
 	}
+	var cibwEnv string
 	// Extract pyproject.toml requirements.
 	{
 		commit, err := rcfg.Repository.CommitObject(plumbing.NewHash(ref))
@@ -489,6 +491,73 @@ func inferBuild(ctx context.Context, t rebuild.Target, mux rebuild.RegistryMux, 
 			log.Println(errors.Wrap(err, "extracting cibuildwheel dependencies"))
 		} else {
 			sysdepsList = append(sysdepsList, cibwDeps...)
+		}
+		cibwEnv = extractCibuildwheelEnv(tree, dir)
+		if strings.Contains(strings.ToUpper(cibwEnv), "CYTHON") && !hasRequirement(reqs, "cython") {
+			reqs = append(reqs, "Cython")
+		}
+
+		needsRust := false
+		tree.Files().ForEach(func(f *object.File) error {
+			if strings.HasSuffix(f.Name, ".rs") {
+				needsRust = true
+			}
+			return nil
+		})
+		if needsRust {
+			if !hasRequirement(reqs, "setuptools-rust") {
+				reqs = append(reqs, "setuptools-rust")
+			}
+			sysdepsList = append(sysdepsList, sysdeps.DependencyIdentifier{Namespace: sysdeps.NamespaceYum, Name: "rust"})
+			sysdepsList = append(sysdepsList, sysdeps.DependencyIdentifier{Namespace: sysdeps.NamespaceYum, Name: "cargo"})
+		}
+
+		// Extract mypyc dependencies from pyproject.toml unconditionally
+		if f, err := tree.File("pyproject.toml"); err == nil {
+			if content, err := f.Contents(); err == nil {
+				reExpr := re.MustCompile(`(?s)\[tool\.hatch\.build\.targets\.wheel\.hooks\.mypyc\].*?dependencies\s*=\s*\[(.*?)\]`)
+				m := reExpr.FindStringSubmatch(content)
+				if len(m) > 1 {
+					depsStr := m[1]
+					reStr := re.MustCompile(`"([^"]+)"|'([^']+)'`)
+					for _, sm := range reStr.FindAllStringSubmatch(depsStr, -1) {
+						dep := sm[1]
+						if dep == "" {
+							dep = sm[2]
+						}
+						if dep != "" && !hasRequirement(reqs, normalizeName(dep)) {
+							reqs = append(reqs, dep)
+						}
+					}
+				}
+			}
+		}
+
+		// Parse setup.py for os.getenv / os.environ.get to find feature flags
+		if f, err := tree.File("setup.py"); err == nil {
+			if content, err := f.Contents(); err == nil {
+				reEnv := re.MustCompile(`(?:os\.getenv|os\.environ\.get)\(['"]([A-Z0-9_]*(?:USE|WITH|ENABLE)[A-Z0-9_]*(?:CYTHON|MYPYC)[A-Z0-9_]*|[A-Z0-9_]*(?:CYTHON|MYPYC)[A-Z0-9_]*(?:USE|WITH|ENABLE)[A-Z0-9_]*)['"]`)
+				for _, match := range reEnv.FindAllStringSubmatch(content, -1) {
+					envName := match[1]
+					if envName == "" {
+						continue
+					}
+					// append to cibwEnv as VAR=1
+					if !strings.Contains(cibwEnv, envName+"=") {
+						if cibwEnv != "" {
+							cibwEnv += " "
+						}
+						cibwEnv += envName + "=1"
+					}
+
+					if strings.Contains(envName, "CYTHON") && !hasRequirement(reqs, "cython") {
+						reqs = append(reqs, "Cython")
+					}
+					if strings.Contains(envName, "MYPYC") && release.Name != "mypy" && !hasRequirement(reqs, "mypy") {
+						reqs = append(reqs, "mypy")
+					}
+				}
+			}
 		}
 	}
 	if strings.HasSuffix(a.Filename, ".tar.gz") {
@@ -519,6 +588,7 @@ func inferBuild(ctx context.Context, t rebuild.Target, mux rebuild.RegistryMux, 
 			Requirements: reqs,
 			SystemDeps:   sysdeps.DeduplicateIdentifiers(sysdepsList),
 			RegistryTime: a.UploadTime,
+			CibwEnv:      cibwEnv,
 		}, nil
 	} else {
 		return &PureWheelBuild{
