@@ -17,6 +17,7 @@ func TestVersionAt(t *testing.T) {
 	}{
 		{"exact match", time.Date(2023, 9, 19, 0, 0, 0, 0, time.UTC), "1.72.1", false},
 		{"between releases", time.Date(2023, 10, 1, 0, 0, 0, 0, time.UTC), "1.72.1", false},
+		{"recent 1.98.0 release", time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC), "1.98.0", false},
 		{"before all releases", time.Date(2012, 10, 1, 0, 0, 0, 0, time.UTC), "", true},
 	}
 

@@ -4,17 +4,23 @@
 package pypi
 
 import (
+	"archive/tar"
 	"archive/zip"
 	"bytes"
 	"context"
 	"fmt"
+	"net/http"
 	"testing"
 	"time"
 
 	"github.com/go-git/go-git/v5/plumbing"
+	"github.com/google/go-cmp/cmp"
 	"github.com/google/oss-rebuild/internal/gitx/gitxtest"
+	"github.com/google/oss-rebuild/internal/httpx/httpxtest"
 	"github.com/google/oss-rebuild/pkg/archive"
 	"github.com/google/oss-rebuild/pkg/archive/archivetest"
+	"github.com/google/oss-rebuild/pkg/rebuild/rebuild"
+	pypireg "github.com/google/oss-rebuild/pkg/registry/pypi"
 	"github.com/google/oss-rebuild/pkg/vcs/gitscan"
 )
 
@@ -146,6 +152,15 @@ func TestMatchArchiveBlobs(t *testing.T) {
 			version: "2.0.0",
 			want:    "s1",
 		},
+		{
+			name: "attr directive tie, earliest neutral",
+			commits: []gitxtest.Commit{
+				{ID: "a1", Time: day(1), Files: gitxtest.FileContent{"setup.cfg": "[metadata]\nname = acme\nversion = attr: acme.__version__\n", "acme/core.py": coreV2, "acme/util.py": util}},
+				{ID: "a2", Time: day(2), Parent: "a1", Files: gitxtest.FileContent{"README.md": "doc change\n"}},
+			},
+			version: "2.0.0",
+			want:    "a1",
+		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			repo := must(gitxtest.CreateRepo(tc.commits, nil))
@@ -169,5 +184,115 @@ func TestMatchArchiveBlobs(t *testing.T) {
 	repo := must(gitxtest.CreateRepo([]gitxtest.Commit{{ID: "v1", Files: gitxtest.FileContent{"acme/core.py": coreV1}}}, nil))
 	if _, err := matchArchiveBlobs(ctx, []plumbing.Hash{plumbing.ZeroHash}, "acme", "2.0.0", repo.Repository); err == nil {
 		t.Errorf("matchArchiveBlobs(no matching blobs) = nil error, want a rejection")
+	}
+}
+
+func TestSourceArchives(t *testing.T) {
+	tests := []struct {
+		name      string
+		artifacts []pypireg.Artifact
+		want      []string
+	}{
+		{
+			name: "PureWheelThenSdist",
+			artifacts: []pypireg.Artifact{
+				{Filename: "foo-1.0.0.tar.gz"},
+				{Filename: "foo-1.0.0-py3-none-any.whl"},
+				{Filename: "foo-1.0.0-cp312-cp312-manylinux_2_28_x86_64.whl"},
+			},
+			want: []string{"foo-1.0.0-py3-none-any.whl", "foo-1.0.0.tar.gz"},
+		},
+		{
+			name: "PlatformWheelsAndSdist",
+			artifacts: []pypireg.Artifact{
+				{Filename: "lru_dict-1.4.1-cp312-cp312-manylinux_2_28_x86_64.whl"},
+				{Filename: "lru_dict-1.4.1.tar.gz"},
+			},
+			want: []string{"lru_dict-1.4.1.tar.gz"},
+		},
+		{
+			name: "ZipSdist",
+			artifacts: []pypireg.Artifact{
+				{Filename: "foo-1.0.0.zip"},
+			},
+			want: []string{"foo-1.0.0.zip"},
+		},
+		{
+			name: "UnsupportedSdistSkipped",
+			artifacts: []pypireg.Artifact{
+				{Filename: "foo-1.0.0.tar.bz2"},
+			},
+			want: nil,
+		},
+		{
+			name:      "NoCandidates",
+			artifacts: nil,
+			want:      nil,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var got []string
+			for _, a := range sourceArchives(tt.artifacts) {
+				got = append(got, a.Filename)
+			}
+			if diff := cmp.Diff(tt.want, got); diff != "" {
+				t.Errorf("sourceArchives() diff (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
+func tarEntry(name, body string) archive.TarEntry {
+	return archive.TarEntry{
+		Header: &tar.Header{Name: name, Typeflag: tar.TypeReg, Size: int64(len(body)), Mode: 0o644},
+		Body:   []byte(body),
+	}
+}
+
+func TestArchiveContentRef(t *testing.T) {
+	const (
+		readmeV1 = "lru-dict original readme contents\n"
+		readmeV2 = "lru-dict updated readme contents calling for maintainers\n"
+		cSrc     = "int lru_init(void) { return 0; }\n"
+	)
+	day := func(n int) time.Time { return time.Date(2025, time.October, n, 0, 0, 0, 0, time.UTC) }
+	repo := must(gitxtest.CreateRepo([]gitxtest.Commit{
+		{ID: "bump", Time: day(1), Files: gitxtest.FileContent{"pyproject.toml": pyprojectTOML("lru-dict", "1.4.1"), "README.rst": readmeV1, "src/lru.c": cSrc}},
+		{ID: "readme", Time: day(2), Parent: "bump", Files: gitxtest.FileContent{"README.rst": readmeV2}},
+	}, nil))
+	tgzBuf := must(archivetest.TgzFile([]archive.TarEntry{
+		tarEntry("lru_dict-1.4.1/pyproject.toml", pyprojectTOML("lru-dict", "1.4.1")),
+		tarEntry("lru_dict-1.4.1/README.rst", readmeV2),
+		tarEntry("lru_dict-1.4.1/src/lru.c", cSrc),
+		tarEntry("lru_dict-1.4.1/PKG-INFO", "Metadata-Version: 2.1\nName: lru-dict\nVersion: 1.4.1\n"),
+	}))
+	sdistURL := "https://files.pythonhosted.org/lru_dict-1.4.1.tar.gz"
+	release := &pypireg.Release{
+		Info: pypireg.Info{Name: "lru-dict", Version: "1.4.1"},
+		Artifacts: []pypireg.Artifact{
+			{Filename: "lru_dict-1.4.1-cp312-cp312-musllinux_1_2_x86_64.whl", Size: 100},
+			{Filename: "lru_dict-1.4.1.tar.gz", URL: sdistURL, Size: int64(tgzBuf.Len())},
+		},
+	}
+	releaseJSON := fmt.Sprintf(`{"info":{"name":"lru-dict","version":"1.4.1"},"urls":[{"filename":"lru_dict-1.4.1.tar.gz","url":%q,"size":%d}]}`, sdistURL, tgzBuf.Len())
+	mux := rebuild.RegistryMux{
+		PyPI: pypireg.HTTPRegistry{
+			Client: &httpxtest.MockClient{
+				Calls: []httpxtest.Call{
+					{URL: "https://pypi.org/pypi/lru-dict/1.4.1/json", Response: &http.Response{StatusCode: 200, Body: httpxtest.Body(releaseJSON)}},
+					{URL: sdistURL, Response: &http.Response{StatusCode: 200, Body: httpxtest.Body(tgzBuf.String())}},
+				},
+				URLValidator: httpxtest.NewURLValidator(t),
+			},
+		},
+	}
+	got, err := archiveContentRef(context.Background(), mux, "lru-dict", "1.4.1", release, repo.Repository)
+	if err != nil {
+		t.Fatalf("archiveContentRef() error = %v", err)
+	}
+	want := repo.Commits["readme"].String()
+	if got != want {
+		t.Errorf("archiveContentRef() = %q, want %q", got, want)
 	}
 }

@@ -21,7 +21,28 @@ type GitInfo struct {
 // Format: https://doc.rust-lang.org/cargo/reference/manifest.html
 type CargoTOML struct {
 	PackageManifest `toml:"package"`
-	Workspace       *WorkspaceManifest `toml:"workspace"`
+	Workspace       *WorkspaceManifest  `toml:"workspace"`
+	Features        map[string][]string `toml:"features"`
+	Dependencies    map[string]any      `toml:"dependencies"`
+}
+
+// DependencyFeatures returns the features list configured on a dependency entry.
+func (c CargoTOML) DependencyFeatures(name string) []string {
+	dep, ok := c.Dependencies[name].(map[string]any)
+	if !ok {
+		return nil
+	}
+	raw, ok := dep["features"].([]any)
+	if !ok {
+		return nil
+	}
+	var out []string
+	for _, f := range raw {
+		if s, ok := f.(string); ok {
+			out = append(out, s)
+		}
+	}
+	return out
 }
 
 // PackageManifest is the [package] section of the Cargo.toml file.

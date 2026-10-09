@@ -36,13 +36,37 @@ func TestMatchTag(t *testing.T) {
 		{"mypackage-1.0.0", "org/mypackage", "1.0.0", true, true},
 		{"org/otherpackage-1.0.0", "org/mypackage", "1.0.0", false, true}, // org-but-not-package special case
 		{"otherpackage-1.0.0", "org/mypackage", "1.0.0", true, true},
+		{"rel_2_0_52", "sqlalchemy", "2_0_52", true, true},
+		{"rel_2_0_52", "sqlalchemy", "2.0.52", false, false},
+		{"rel_2_0_5_post1", "sqlalchemy", "2_0_52", false, false},
+		{"rel_1_0_0_beta1", "mypackage", "1_0_0", false, true},
 	}
 
 	for _, tt := range tests {
-		t.Run(tt.tag, func(t *testing.T) {
+		t.Run(tt.tag+"-"+tt.version, func(t *testing.T) {
 			strict, approx := MatchTag(tt.tag, tt.pkg, tt.version)
 			if strict != tt.strict || approx != tt.approx {
 				t.Errorf("MatchTag(%q, %q, %q) = (%v, %v), want (%v, %v)", tt.tag, tt.pkg, tt.version, strict, approx, tt.strict, tt.approx)
+			}
+		})
+	}
+}
+
+func TestVersionSpellings(t *testing.T) {
+	tests := []struct {
+		name    string
+		version string
+		want    []string
+	}{
+		{name: "Dotted", version: "2.0.52", want: []string{"2.0.52", "2_0_52"}},
+		{name: "NoDots", version: "7", want: []string{"7"}},
+		{name: "LocalVersion", version: "1.0.0+meta", want: []string{"1.0.0+meta", "1_0_0+meta"}},
+		{name: "PreRelease", version: "2.0.0b1", want: []string{"2.0.0b1", "2_0_0b1"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if diff := cmp.Diff(tt.want, versionSpellings(tt.version)); diff != "" {
+				t.Errorf("versionSpellings(%q) diff (-want +got):\n%s", tt.version, diff)
 			}
 		})
 	}
@@ -57,6 +81,11 @@ func TestFindTagMatch(t *testing.T) {
 	createLightweightTag(repo, "v1.0.0", c1)
 	createLightweightTag(repo, "v1.1.0", c2)
 	createAnnotatedTag(repo, "v1.0.0-alpha", c3)
+	createLightweightTag(repo, "rel_2_0_5", c1)
+	createLightweightTag(repo, "rel_2_0_52", c2)
+	createLightweightTag(repo, "rel_1_1_0", c3)
+	createLightweightTag(repo, "v3.23.0", c1)
+	createLightweightTag(repo, "v3.23.0x", c2)
 
 	tests := []struct {
 		pkg     string
@@ -68,6 +97,10 @@ func TestFindTagMatch(t *testing.T) {
 		{"mypackage", "1.1.0", c2, false},
 		{"otherpackage", "1.0.0", c1, false},
 		{"otherpackage", "1.0.0-alpha", c3, false},
+		{"sqlalchemy", "2.0.52", c2, false},
+		{"sqlalchemy", "2.0.5", c1, false},
+		{"pycryptodome", "3.23.0", c1, false},
+		{"pycryptodomex", "3.23.0", c2, false},
 		{"mypackage", "2.0.0", "", false}, // No match
 		// TODO: Add error test cases.
 	}

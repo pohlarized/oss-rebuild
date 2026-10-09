@@ -4,13 +4,17 @@
 package pypi
 
 import (
+	"archive/tar"
 	"archive/zip"
 	"bytes"
 	"cmp"
+	"compress/gzip"
 	"context"
+	"fmt"
 	"io"
 	"log"
 	"slices"
+	"strings"
 
 	"github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/plumbing"
@@ -23,6 +27,91 @@ import (
 	"github.com/pkg/errors"
 )
 
+// NOTE: Bounds memory and scan time when hashing an archive for the ref heuristic.
+const maxArchiveContentSize = 256 << 20
+
+type archiveFormat int
+
+const (
+	zipFormat archiveFormat = iota + 1
+	tarGzFormat
+)
+
+func archiveFormatOf(filename string) (archiveFormat, bool) {
+	switch {
+	case strings.HasSuffix(filename, ".whl"), strings.HasSuffix(filename, ".zip"):
+		return zipFormat, true
+	case strings.HasSuffix(filename, ".tar.gz"):
+		return tarGzFormat, true
+	default:
+		return 0, false
+	}
+}
+
+// sourceArchives returns the release archives suitable for content-based commit
+// matching: the pure wheel first to keep existing refs stable, followed by the
+// source distribution (.tar.gz then .zip).
+func sourceArchives(artifacts []pypireg.Artifact) []pypireg.Artifact {
+	var out []pypireg.Artifact
+	if wheel, err := FindPureWheel(artifacts); err == nil {
+		out = append(out, *wheel)
+	}
+	if sdist, err := FindSourceDist(artifacts); err == nil {
+		out = append(out, *sdist)
+	}
+	for _, r := range artifacts {
+		if strings.HasSuffix(r.Filename, ".zip") {
+			out = append(out, r)
+			break
+		}
+	}
+	return out
+}
+
+func archiveBlobHashes(ctx context.Context, mux rebuild.RegistryMux, pkg, version string, a pypireg.Artifact) ([]plumbing.Hash, error) {
+	if a.Size > maxArchiveContentSize {
+		return nil, errors.Errorf("archive exceeds max size [file=%s,size=%d]", a.Filename, a.Size)
+	}
+	format, ok := archiveFormatOf(a.Filename)
+	if !ok {
+		return nil, errors.Errorf("unsupported archive format [file=%s]", a.Filename)
+	}
+	rc, err := mux.PyPI.Artifact(ctx, pkg, version, a.Filename)
+	if err != nil {
+		return nil, errors.Wrapf(err, "downloading %s", a.Filename)
+	}
+	defer rc.Close()
+	switch format {
+	case zipFormat:
+		body, err := io.ReadAll(rc)
+		if err != nil {
+			return nil, errors.Wrapf(err, "reading %s", a.Filename)
+		}
+		zr, err := zip.NewReader(bytes.NewReader(body), int64(len(body)))
+		if err != nil {
+			return nil, errors.Wrapf(err, "opening zip %s", a.Filename)
+		}
+		hashes, err := gitscan.BlobHashesFromZip(zr)
+		if err != nil {
+			return nil, errors.Wrapf(err, "hashing zip %s", a.Filename)
+		}
+		return hashes, nil
+	case tarGzFormat:
+		gr, err := gzip.NewReader(rc)
+		if err != nil {
+			return nil, errors.Wrapf(err, "opening gzip %s", a.Filename)
+		}
+		defer gr.Close()
+		hashes, err := gitscan.BlobHashesFromTar(tar.NewReader(gr))
+		if err != nil {
+			return nil, errors.Wrapf(err, "hashing tar %s", a.Filename)
+		}
+		return hashes, nil
+	default:
+		return nil, errors.Errorf("unhandled archive format [file=%s]", a.Filename)
+	}
+}
+
 func shortHash(h string) string {
 	if len(h) > 9 {
 		return h[:9]
@@ -30,32 +119,31 @@ func shortHash(h string) string {
 	return h
 }
 
-// archiveContentRef matches the pure wheel's file blobs against commit trees:
-// a wheel built from commit C contains C's file contents verbatim, so C's tree
-// shares those blob hashes. Works without a declared version.
+// archiveContentRef matches the pure wheel or sdist file blobs against commit
+// trees: an archive built from commit C contains C's file contents verbatim, so
+// C's tree shares those blob hashes. Works without a declared version.
 func archiveContentRef(ctx context.Context, mux rebuild.RegistryMux, pkg, version string, release *pypireg.Release, repo *git.Repository) (string, error) {
-	wheel, err := FindPureWheel(release.Artifacts)
-	if err != nil {
-		return "", errors.Wrap(err, "no pure wheel")
+	archives := sourceArchives(release.Artifacts)
+	if len(archives) == 0 {
+		return "", errors.New("no source archive")
 	}
-	rc, err := mux.PyPI.Artifact(ctx, pkg, version, wheel.Filename)
-	if err != nil {
-		return "", errors.Wrap(err, "downloading wheel")
+	var reasons []string
+	for _, a := range archives {
+		hashes, err := archiveBlobHashes(ctx, mux, pkg, version, a)
+		if err != nil {
+			log.Printf("archive-content candidate failed [pkg=%s,ver=%s,file=%s]: %v", pkg, version, a.Filename, err)
+			reasons = append(reasons, fmt.Sprintf("%s: %v", a.Filename, err))
+			continue
+		}
+		ref, err := matchArchiveBlobs(ctx, hashes, pkg, version, repo)
+		if err != nil {
+			log.Printf("archive-content candidate failed [pkg=%s,ver=%s,file=%s]: %v", pkg, version, a.Filename, err)
+			reasons = append(reasons, fmt.Sprintf("%s: %v", a.Filename, err))
+			continue
+		}
+		return ref, nil
 	}
-	defer rc.Close()
-	body, err := io.ReadAll(rc)
-	if err != nil {
-		return "", errors.Wrap(err, "reading wheel")
-	}
-	zr, err := zip.NewReader(bytes.NewReader(body), int64(len(body)))
-	if err != nil {
-		return "", errors.Wrap(err, "opening wheel zip")
-	}
-	hashes, err := gitscan.BlobHashesFromZip(zr)
-	if err != nil {
-		return "", errors.Wrap(err, "hashing wheel contents")
-	}
-	return matchArchiveBlobs(ctx, hashes, pkg, version, repo)
+	return "", errors.New(strings.Join(reasons, ", "))
 }
 
 // matchArchiveBlobs returns the commit whose tree contains the most of the

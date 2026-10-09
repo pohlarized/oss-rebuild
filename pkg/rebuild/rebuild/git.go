@@ -25,7 +25,7 @@ import (
 
 var (
 	boundaryPatternTpl     = `(^|[^\d])%s([^\d]|$)`
-	continuationPatternTpl = `%s[\.-]?(beta|dev|rc|alpha|preview|canary)`
+	continuationPatternTpl = `%s[._-]?(beta|dev|rc|alpha|preview|canary)`
 )
 
 // MatchTag evaluates whether the given tag is likely to refer to a package version.
@@ -43,42 +43,65 @@ func MatchTag(tag, pkg, version string) (strict bool, approx bool) {
 	return
 }
 
+// versionSpellings returns the candidate version strings to search for in tags,
+// starting with the literal version and falling back to an underscore-separated
+// form (such as rel_2_0_52 for 2.0.52 in repositories with CVS or SVN heritage).
+func versionSpellings(version string) []string {
+	spellings := []string{version}
+	if under := strings.ReplaceAll(version, ".", "_"); under != version {
+		spellings = append(spellings, under)
+	}
+	return spellings
+}
+
 // FindTagMatch searches a repositories tags for a possible version match and returns the commit hash.
 func FindTagMatch(pkg, version string, repo *git.Repository) (commit string, err error) {
-	var matches, nearMatches []string
 	tags, err := allTags(repo)
 	if err != nil {
 		return "", err
 	}
-	for _, tag := range tags {
-		strict, approx := MatchTag(tag, pkg, version)
-		if strict {
-			matches = append(matches, tag)
-		} else if approx {
-			nearMatches = append(nearMatches, tag)
+	for _, spelling := range versionSpellings(version) {
+		var matches, nearMatches []string
+		for _, tag := range tags {
+			strict, approx := MatchTag(tag, pkg, spelling)
+			if strict {
+				matches = append(matches, tag)
+			} else if approx {
+				nearMatches = append(nearMatches, tag)
+			}
 		}
-	}
-	if len(nearMatches) > 0 {
-		log.Printf("Rejected potential matches [pkg=%s,ver=%s,matches=%v]\n", pkg, version, nearMatches)
-	}
-	if len(matches) > 0 {
+		if len(nearMatches) > 0 {
+			log.Printf("Rejected potential matches [pkg=%s,ver=%s,matches=%v]\n", pkg, spelling, nearMatches)
+		}
+		if len(matches) == 0 {
+			continue
+		}
 		sort.Strings(matches)
+		if strings.HasSuffix(strings.ToLower(pkg), "x") {
+			suffix := strings.ToLower(spelling) + "x"
+			sort.SliceStable(matches, func(i, j int) bool {
+				return strings.HasSuffix(strings.ToLower(matches[i]), suffix) && !strings.HasSuffix(strings.ToLower(matches[j]), suffix)
+			})
+		}
 		if len(matches) > 1 {
-			log.Printf("Multiple tag matches [pkg=%s,ver=%s,matches=%v]\n", pkg, version, matches)
+			log.Printf("Multiple tag matches [pkg=%s,ver=%s,matches=%v]\n", pkg, spelling, matches)
 		}
-		ref, err := repo.Tag(matches[0])
-		if err != nil {
-			return "", err
-		}
-		if t, err := repo.TagObject(ref.Hash()); err == nil {
-			// Annotated tag. Use the Target pointer as the ref hash.
-			return t.Target.String(), nil
-		} else {
-			// Lightweight tag. Use the ref hash itself.
-			return ref.Hash().String(), nil
-		}
+		return resolveTag(repo, matches[0])
 	}
 	return "", nil
+}
+
+func resolveTag(repo *git.Repository, name string) (string, error) {
+	ref, err := repo.Tag(name)
+	if err != nil {
+		return "", err
+	}
+	if t, err := repo.TagObject(ref.Hash()); err == nil {
+		// Annotated tag. Use the Target pointer as the ref hash.
+		return t.Target.String(), nil
+	}
+	// Lightweight tag. Use the ref hash itself.
+	return ref.Hash().String(), nil
 }
 
 func allTags(repo *git.Repository) (tags []string, err error) {

@@ -19,6 +19,11 @@ func IsManylinux2014(baseImage string) bool {
 	return strings.Contains(baseImage, "manylinux2014")
 }
 
+// IsManylinux2010 returns true if the given base image is a manylinux2010 image.
+func IsManylinux2010(baseImage string) bool {
+	return strings.Contains(baseImage, "manylinux2010")
+}
+
 // Manylinux2014RepoSetupScript returns the shell script snippet to configure yum repositories
 // on manylinux2014 images before performing package management operations.
 func Manylinux2014RepoSetupScript() string {

@@ -6,6 +6,10 @@ package platform
 import "github.com/pkg/errors"
 
 const (
+	ImageManylinux2010X86_64      = "quay.io/pypa/manylinux2010_x86_64"
+	ImageManylinux2010CP27X86_64  = "quay.io/pypa/manylinux2010_x86_64:2021-02-06-3d322a5"
+	ImageManylinux2010FinalX86_64 = "quay.io/pypa/manylinux2010_x86_64:2022-08-05-4535177"
+
 	ImageManylinux2014X86_64 = "quay.io/pypa/manylinux2014_x86_64"
 	ImageManylinux2_28X86_64 = "quay.io/pypa/manylinux_2_28_x86_64"
 	ImageManylinux2_34X86_64 = "quay.io/pypa/manylinux_2_34_x86_64"

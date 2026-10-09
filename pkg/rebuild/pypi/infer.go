@@ -19,6 +19,7 @@ import (
 
 	"github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/plumbing"
+	"github.com/go-git/go-git/v5/plumbing/object"
 	"github.com/go-git/go-git/v5/plumbing/transport"
 	"github.com/google/oss-rebuild/internal/gitx"
 	"github.com/google/oss-rebuild/internal/uri"
@@ -55,6 +56,7 @@ var distInfoFieldPat = re.MustCompile(`[-_.]+`)
 //	  - a link named in commonRepoLinks, on a known repo host
 //	  - a link named in commonRepoLinks, on any host
 //	other mentions, release then project:
+//	  - the first repository named after the package
 //	  - the first repository cited in the description
 //	  - a link under any other name, on a known repo host, sponsors excluded
 func (Rebuilder) InferRepo(ctx context.Context, t rebuild.Target, mux rebuild.RegistryMux) (string, error) {
@@ -69,12 +71,24 @@ func (Rebuilder) InferRepo(ctx context.Context, t rebuild.Target, mux rebuild.Re
 		return "", errors.Wrap(err, "fetching pypi metadata")
 	}
 	infos = append(infos, project.Info)
-	for _, pick := range []func(pypireg.Info) string{repoFromSourceLinks, repoFromOtherLinks} {
-		for _, info := range infos {
-			if repo := pick(info); repo != "" {
-				return uri.CanonicalizeRepoURI(repo)
-			}
+	for _, info := range infos {
+		if repo := repoFromSourceLinks(info); repo != "" {
+			return uri.CanonicalizeRepoURI(repo)
 		}
+	}
+	var candidates []string
+	for _, info := range infos {
+		candidates = append(candidates, otherLinkCandidates(info)...)
+	}
+	// NOTE: Descriptions often cite other projects, such as an upstream commit,
+	// so a repository named after the package beats the first one mentioned.
+	if i := slices.IndexFunc(candidates, func(repo string) bool {
+		return normalizeName(uri.RepoName(repo)) == normalizeName(t.Package)
+	}); i != -1 {
+		return uri.CanonicalizeRepoURI(candidates[i])
+	}
+	if len(candidates) != 0 {
+		return uri.CanonicalizeRepoURI(candidates[0])
 	}
 	return "", errors.New("no git repo")
 }
@@ -103,23 +117,31 @@ func repoFromSourceLinks(info pypireg.Info) string {
 	return ""
 }
 
-// repoFromOtherLinks picks the first known repo host cited in the description,
-// else one linked under any other name.
-func repoFromOtherLinks(info pypireg.Info) string {
-	r := uri.FindCommonRepo(info.Description)
-	// TODO: Maybe revisit this sponsors logic?
-	if r != "" && !strings.Contains(r, "sponsors") {
-		return r
+// otherLinkCandidates returns repositories cited in the description followed by
+// repositories linked under non-source project URL names, with sponsor links
+// excluded.
+func otherLinkCandidates(info pypireg.Info) []string {
+	var candidates []string
+	for _, r := range uri.FindCommonRepos(info.Description) {
+		if !strings.Contains(r, "sponsors") {
+			candidates = append(candidates, r)
+		}
 	}
-	for _, url := range info.ProjectURLs {
+	keys := make([]string, 0, len(info.ProjectURLs))
+	for k := range info.ProjectURLs {
+		keys = append(keys, k)
+	}
+	slices.Sort(keys)
+	for _, k := range keys {
+		url := info.ProjectURLs[k]
 		if strings.Contains(url, "sponsors") {
 			continue
 		}
 		if repo := uri.FindCommonRepo(url); repo != "" {
-			return repo
+			candidates = append(candidates, repo)
 		}
 	}
-	return ""
+	return candidates
 }
 
 func (Rebuilder) CloneRepo(ctx context.Context, t rebuild.Target, repoURI string, ropt *gitx.RepositoryOptions) (r rebuild.RepoConfig, err error) {
@@ -137,9 +159,9 @@ func (Rebuilder) CloneRepo(ctx context.Context, t rebuild.Target, repoURI string
 }
 
 // findGitRef resolves the commit a release was built from: a tag naming the
-// version when one exists, else the commit whose tree matches the pure wheel
-// file blobs. A fallback that errors internally is logged and skipped, never
-// aborting the chain.
+// version when one exists, else the commit whose tree matches the pure wheel or
+// sdist file blobs. A fallback that errors internally is logged and skipped,
+// never aborting the chain.
 func findGitRef(ctx context.Context, mux rebuild.RegistryMux, pkg, version string, release *pypireg.Release, rcfg *rebuild.RepoConfig) (string, error) {
 	tagHeuristic, err := rebuild.FindTagMatch(pkg, version, rcfg.Repository)
 	if err != nil {
@@ -382,6 +404,16 @@ func mergeRequirements(reqs, buildReqs []string) []string {
 	return reqs
 }
 
+// backendRequirements returns dynamic build requirements requested by known
+// backends when absent from the build image. Merge after pyproject
+// requirements so project constraints take precedence.
+func backendRequirements(reqs []string) []string {
+	if hasRequirement(reqs, "meson-python", "scikit-build-core") {
+		return []string{"ninja"}
+	}
+	return nil
+}
+
 func (Rebuilder) InferStrategy(ctx context.Context, t rebuild.Target, mux rebuild.RegistryMux, rcfg *rebuild.RepoConfig, hint rebuild.Strategy) (rebuild.Strategy, error) {
 	name, version := t.Package, t.Version
 	release, err := mux.PyPI.Release(ctx, name, version)
@@ -440,10 +472,11 @@ func inferBuild(ctx context.Context, t rebuild.Target, mux rebuild.RegistryMux, 
 	if err != nil {
 		return nil, errors.Wrapf(err, "[INTERNAL] Failed to read upstream artifact")
 	}
-	var reqs []string
+	var reqs, buildEnv []string
 	var sysdepsList []sysdeps.DependencyIdentifier
+	var zr *zip.Reader
 	if strings.HasSuffix(a.Filename, ".whl") {
-		zr, err := zip.NewReader(bytes.NewReader(body), a.Size)
+		zr, err = zip.NewReader(bytes.NewReader(body), a.Size)
 		if err != nil {
 			return nil, errors.Wrapf(err, "[INTERNAL] Failed to initialize upstream zip reader")
 		}
@@ -462,13 +495,15 @@ func inferBuild(ctx context.Context, t rebuild.Target, mux rebuild.RegistryMux, 
 		// We'll get them from pyproject.toml below
 		reqs = []string{}
 	}
+	var sanitizeSetupCfg bool
+	var tree *object.Tree
 	// Extract pyproject.toml requirements.
 	{
 		commit, err := rcfg.Repository.CommitObject(plumbing.NewHash(ref))
 		if err != nil {
 			return nil, errors.Wrapf(err, "Failed to get commit object")
 		}
-		tree, err := commit.Tree()
+		tree, err = commit.Tree()
 		if err != nil {
 			return nil, errors.Wrapf(err, "Failed to get tree")
 		}
@@ -485,10 +520,26 @@ func inferBuild(ctx context.Context, t rebuild.Target, mux rebuild.RegistryMux, 
 		} else {
 			reqs = mergeRequirements(reqs, buildReqs)
 		}
+		if dynReqs, err := pypiresolver.ExtractDynamicBuildRequirements(ctx, tree, dir, extractWheelTags(a.Filename).Python); err != nil {
+			log.Println(errors.Wrap(err, "extracting dynamic build requirements"))
+		} else {
+			reqs = mergeRequirements(reqs, dynReqs)
+		}
+		reqs = mergeRequirements(reqs, backendRequirements(reqs))
 		if cibwDeps, err := sysdeps.ExtractCibuildwheelDependencies(ctx, tree, dir); err != nil {
 			log.Println(errors.Wrap(err, "extracting cibuildwheel dependencies"))
 		} else {
 			sysdepsList = append(sysdepsList, cibwDeps...)
+		}
+		if sanitize, err := pypiresolver.NeedsSetupCfgSanitize(ctx, tree, dir, version); err != nil {
+			log.Println(errors.Wrap(err, "checking setup.cfg egg_info tags"))
+		} else {
+			sanitizeSetupCfg = sanitize
+		}
+		if zr != nil && !strings.HasSuffix(a.Filename, "none-any.whl") {
+			var envReqs []string
+			buildEnv, envReqs = inferWheelBuildEnv(tree, dir, zr, extractWheelTags(a.Filename), reqs)
+			reqs = mergeRequirements(reqs, envReqs)
 		}
 	}
 	if strings.HasSuffix(a.Filename, ".tar.gz") {
@@ -504,8 +555,31 @@ func inferBuild(ctx context.Context, t rebuild.Target, mux rebuild.RegistryMux, 
 		}, nil
 	} else if strings.HasSuffix(a.Filename, ".whl") && !strings.HasSuffix(a.Filename, "none-any.whl") {
 		tags := extractWheelTags(a.Filename)
-		if _, err := platform.ParsePlatformTags(tags.Platform); err != nil {
+		baseImageRepo, err := platform.SelectBaseImage(tags.Platform)
+		if err != nil {
 			return nil, errors.Wrapf(err, "unsupported platform tag in wheel filename %s", a.Filename)
+		}
+		var baseImage string
+		if needsLegacyPythonBaseImage(tags, baseImageRepo) {
+			cibwVersion, err := extractCibuildwheelVersionForPython(tree, tags.Python)
+			if err != nil {
+				log.Println(errors.Wrap(err, "extracting cibuildwheel version"))
+			}
+			baseImage = inferLegacyPythonBaseImage(tags, baseImageRepo, cibwVersion, a.UploadTime)
+		}
+		if tags.Python == "cp36" && tags.ABI != "abi3" {
+			reqs = capSetuptoolsForCP36(reqs)
+		}
+		registryTime := advanceCoReleaseRegistryTime(ctx, mux, name, version, release, reqs, a.UploadTime)
+		var rustVersion string
+		var maturin *MaturinBuild
+		if usesRust(reqs) {
+			var needsSystemLLD bool
+			rustVersion, needsSystemLLD = inferRustVersion(zr, tree, dir, registryTime)
+			sysdepsList = append(sysdepsList, inferRustSysdeps(tags.Platform, needsSystemLLD, tree, dir)...)
+			if hasRequirement(reqs, "maturin") {
+				maturin = inferMaturinBuild(tree, dir, tags)
+			}
 		}
 		return &PlatformWheelBuild{
 			Location: rebuild.Location{
@@ -513,12 +587,17 @@ func inferBuild(ctx context.Context, t rebuild.Target, mux rebuild.RegistryMux, 
 				Dir:  dir,
 				Ref:  ref,
 			},
-			PythonTag:    tags.Python,
-			ABITag:       tags.ABI,
-			PlatformTag:  tags.Platform,
-			Requirements: reqs,
-			SystemDeps:   sysdeps.DeduplicateIdentifiers(sysdepsList),
-			RegistryTime: a.UploadTime,
+			PythonTag:        tags.Python,
+			ABITag:           tags.ABI,
+			PlatformTag:      tags.Platform,
+			BaseImage:        baseImage,
+			Requirements:     reqs,
+			Env:              buildEnv,
+			SystemDeps:       sysdeps.DeduplicateIdentifiers(sysdepsList),
+			RustVersion:      rustVersion,
+			Maturin:          maturin,
+			RegistryTime:     registryTime,
+			SanitizeSetupCfg: sanitizeSetupCfg,
 		}, nil
 	} else {
 		return &PureWheelBuild{
@@ -536,13 +615,150 @@ func inferBuild(ctx context.Context, t rebuild.Target, mux rebuild.RegistryMux, 
 }
 
 var (
+	setupEnvGatePat = re.MustCompile(`os\.(?:getenv|environ\.get)\(\s*["']([A-Z0-9_]+_(?:USE_MYPYC|USE_CYTHON|CYTHON_ABI3))["'][^)]*\)\s*==\s*["']1["']`)
+	cythonSpecPat   = re.MustCompile(`["'](Cython[><=~!][^"'\s]+)["']`)
+)
+
+// inferWheelBuildEnv inspects the upstream wheel and repository build files
+// for environment variable gates and companion build requirements needed to
+// compile mypyc or Cython extension modules.
+func inferWheelBuildEnv(tree *object.Tree, dir string, zr *zip.Reader, tags WheelTags, reqs []string) ([]string, []string) {
+	if tree == nil || zr == nil {
+		return nil, nil
+	}
+	if !hasRequirement(reqs, "setuptools") || hasRequirement(reqs, "flit-core") {
+		return nil, nil
+	}
+	var hasSO, hasMypycSO, hasABI3SO bool
+	for _, f := range zr.File {
+		if strings.HasSuffix(f.Name, ".so") || strings.Contains(f.Name, ".so.") {
+			hasSO = true
+			if strings.Contains(f.Name, "__mypyc") {
+				hasMypycSO = true
+			}
+			if strings.HasSuffix(f.Name, ".abi3.so") {
+				hasABI3SO = true
+			}
+		}
+	}
+	if !hasSO {
+		return nil, nil
+	}
+	setupFile, err := tree.File(path.Join(dir, "setup.py"))
+	if err != nil {
+		return nil, nil
+	}
+	setupSrc, err := setupFile.Contents()
+	if err != nil {
+		return nil, nil
+	}
+	var env, extraReqs []string
+	seenEnv := make(map[string]bool)
+	usedMypyc, usedCython := false, false
+	for _, m := range setupEnvGatePat.FindAllStringSubmatch(setupSrc, -1) {
+		key := m[1]
+		if seenEnv[key] {
+			continue
+		}
+		switch {
+		case strings.HasSuffix(key, "_USE_MYPYC"):
+			if !hasMypycSO {
+				continue
+			}
+			usedMypyc = true
+		case strings.HasSuffix(key, "_USE_CYTHON"):
+			usedCython = true
+		case strings.HasSuffix(key, "_CYTHON_ABI3"):
+			if tags.ABI != "abi3" && !hasABI3SO {
+				continue
+			}
+		}
+		seenEnv[key] = true
+		env = append(env, key+"=1")
+	}
+	if usedMypyc && !hasRequirement(reqs, "mypy") {
+		if _, err := tree.File(path.Join(dir, "mypyc/build.py")); err != nil {
+			extraReqs = append(extraReqs, "mypy")
+		}
+	}
+	if usedCython && !hasRequirement(reqs, "cython") {
+		extraReqs = append(extraReqs, findCythonRequirement(tree, dir, setupSrc))
+	}
+	return env, extraReqs
+}
+
+// findCythonRequirement returns a version-constrained Cython requirement from
+// setup.py or an in-tree build backend when present, defaulting to "Cython".
+func findCythonRequirement(tree *object.Tree, dir, setupSrc string) string {
+	if m := cythonSpecPat.FindStringSubmatch(setupSrc); m != nil {
+		return m[1]
+	}
+	for _, rel := range []string{"_build_hook/backend.py", "packaging/pep517_backend/hooks.py"} {
+		f, err := tree.File(path.Join(dir, rel))
+		if err != nil {
+			continue
+		}
+		src, err := f.Contents()
+		if err != nil {
+			continue
+		}
+		if m := cythonSpecPat.FindStringSubmatch(src); m != nil {
+			return m[1]
+		}
+	}
+	return "Cython"
+}
+
+// needsLegacyPythonBaseImage reports whether a platform wheel requires a
+// historical container image pin because its CPython tag was removed from the
+// unpinned latest PyPA image. abi3 wheels can build with newer interpreters,
+// and musllinux_1_1_x86_64:latest remains frozen with cp36 through cp310.
+func needsLegacyPythonBaseImage(tags WheelTags, baseImageRepo string) bool {
+	if tags.ABI == "abi3" || baseImageRepo == platform.ImageMusllinux1_1X86_64 {
+		return false
+	}
+	switch tags.Python {
+	case "cp27", "cp36", "cp37", "cp38":
+		return true
+	default:
+		return false
+	}
+}
+
+// inferLegacyPythonBaseImage selects a pinned PyPA image that still ships the
+// wheel's legacy CPython interpreter.
+func inferLegacyPythonBaseImage(tags WheelTags, baseImageRepo, cibwVersion string, uploadTime time.Time) string {
+	if tags.Python == "cp27" {
+		return platform.ImageManylinux2010CP27X86_64
+	}
+	if tags.Python == "cp37" && strings.Contains(tags.Platform, "manylinux2010") {
+		return platform.ImageManylinux2010FinalX86_64
+	}
+	if cibwVersion != "" {
+		if ref, ok := platform.CibuildwheelImageForPython(baseImageRepo, cibwVersion, tags.Python); ok {
+			return ref
+		}
+	}
+	if ref, _, ok := platform.CibuildwheelImageAtForPython(baseImageRepo, tags.Python, uploadTime); ok {
+		return ref
+	}
+	return ""
+}
+
+var (
 	// setuptools 66.1.0 (released 2023-01-20) was the first release whose
 	// pkg_resources stopped referencing pkgutil.ImpImporter, which Python 3.12
 	// removed. Older setuptools fails to import on 3.12.
 	setuptoolsImpImporterFixVersion = "66.1.0"
 	setuptoolsImpImporterFixDate    = time.Date(2023, time.January, 20, 0, 0, 0, 0, time.UTC)
-	// Upper bounds within a PEP 440 version specifier.
+	// setuptools 70.1.0 merged bdist_wheel from the wheel project and was the
+	// first release to write "Generator: setuptools (...)". Lower versions in
+	// that stamp come from an older dist-info on sys.path (for example, cvxpy
+	// 1.9.2).
+	setuptoolsBdistWheelVersion = "70.1.0"
+	// Upper and lower bounds within a PEP 440 version specifier.
 	versionCeilingPat = re.MustCompile(`(<=?|==)\s*([\d.]+)`)
+	versionFloorPat   = re.MustCompile(`(>=?|==|~=|===)\s*([\d.]+)`)
 )
 
 // hasCeilingBelow reports whether reqs constrain pkg to a version below limit.
@@ -554,6 +770,23 @@ func hasCeilingBelow(reqs []string, pkg, limit string) bool {
 		}
 		for _, m := range versionCeilingPat.FindAllStringSubmatch(req, -1) {
 			if c := versionx.ApproxCompare(m[2], limit); c < 0 || c == 0 && m[1] == "<" {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// hasFloorAtLeast reports whether reqs constrain pkg to a version at or above limit.
+// pkg must be normalized.
+func hasFloorAtLeast(reqs []string, pkg, limit string) bool {
+	for _, req := range reqs {
+		if requirementName(req) != pkg {
+			continue
+		}
+		spec, _, _ := strings.Cut(req, ";")
+		for _, m := range versionFloorPat.FindAllStringSubmatch(spec, -1) {
+			if c := versionx.ApproxCompare(m[2], limit); c > 0 || c == 0 && m[1] != ">" {
 				return true
 			}
 		}
@@ -593,6 +826,9 @@ var poetryPat = re.MustCompile(`^Generator: poetry ([\d\.]+)`)
 var poetryCorePat = re.MustCompile(`^Generator: poetry-core ([\d\.]+)`)
 var pdmBackendPat = re.MustCompile(`^Generator: pdm-backend \(([\d\.]+)\)`)
 var uvBuildPat = re.MustCompile(`^Generator: uv ([\d\.]+)`)
+var mesonPat = re.MustCompile(`^Generator: meson\s*$`)
+var scikitBuildCorePat = re.MustCompile(`^Generator: scikit-build-core ([\d\.]+)`)
+var maturinPat = re.MustCompile(`^Generator: maturin \(([\d\.]+)\)`)
 
 // getGenerator returns the pins identifying the wheel's build backend from its
 // Generator line. bdist_wheel names the wheel packaging tool, not setuptools,
@@ -612,7 +848,11 @@ func getGenerator(wheel, metadata []byte) (reqs []string, err error) {
 			if matches := bdistWheelPat.FindSubmatch(line); matches != nil {
 				return []string{"wheel==" + string(matches[1]), setuptoolsCeiling(metadata)}, nil
 			} else if matches := setuptoolsPat.FindSubmatch(line); matches != nil {
-				return []string{"setuptools==" + string(matches[1])}, nil
+				ver := string(matches[1])
+				if versionx.ApproxCompare(ver, setuptoolsBdistWheelVersion) < 0 {
+					return []string{"setuptools>=" + setuptoolsBdistWheelVersion}, nil
+				}
+				return []string{"setuptools==" + ver}, nil
 			} else if matches := flitPat.FindSubmatch(line); matches != nil {
 				return []string{"flit_core==" + string(matches[1]), "flit==" + string(matches[1])}, nil
 			} else if matches := hatchlingPat.FindSubmatch(line); matches != nil {
@@ -625,6 +865,14 @@ func getGenerator(wheel, metadata []byte) (reqs []string, err error) {
 				return []string{"pdm-backend==" + string(matches[1])}, nil
 			} else if matches := uvBuildPat.FindSubmatch(line); matches != nil {
 				return []string{"uv-build==" + string(matches[1])}, nil
+			} else if mesonPat.Match(line) {
+				// meson-python writes a bare "Generator: meson" without a version.
+				// Return no pins so pyproject.toml constraints take effect.
+				return []string{}, nil
+			} else if matches := scikitBuildCorePat.FindSubmatch(line); matches != nil {
+				return []string{"scikit-build-core==" + string(matches[1])}, nil
+			} else if matches := maturinPat.FindSubmatch(line); matches != nil {
+				return []string{"maturin==" + string(matches[1])}, nil
 			} else {
 				return nil, errors.Errorf("unsupported generator: %s", value)
 			}
@@ -648,6 +896,22 @@ func setuptoolsCeiling(metadata []byte) string {
 	default:
 		return "setuptools<=67.7.2"
 	}
+}
+
+// setuptools 59.6.0 is the final release supporting Python 3.6.
+const setuptoolsCP36MaxVersion = "59.6.0"
+
+// capSetuptoolsForCP36 tightens the default bdist_wheel setuptools ceiling to
+// the last Python 3.6-compatible release so pip 18.1 with --upgrade resolves a
+// version that imports on Python 3.6.
+func capSetuptoolsForCP36(reqs []string) []string {
+	out := slices.Clone(reqs)
+	for i, req := range out {
+		if req == "setuptools<=67.7.2" {
+			out[i] = "setuptools<=" + setuptoolsCP36MaxVersion
+		}
+	}
+	return out
 }
 
 func getFile(fname string, zr *zip.Reader) ([]byte, error) {

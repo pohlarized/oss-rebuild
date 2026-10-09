@@ -497,6 +497,64 @@ func TestHandler_ServeHTTP(t *testing.T) {
 			},
 		},
 		{
+			name:      "pypi simple project request - legacy pip HTML accept header",
+			url:       "http://localhost:8081/simple/some-package/",
+			basicAuth: "pypi:2022-01-01T00:00:00Z",
+			headers: map[string]string{
+				"Accept": "application/vnd.pypi.simple.v1+html, text/html;q=0.9",
+			},
+			client: &httpxtest.MockClient{
+				Calls: []httpxtest.Call{
+					{
+						Method: "GET",
+						URL:    "https://pypi.org/simple/some-package/",
+						Response: &http.Response{
+							StatusCode: http.StatusOK,
+							Header: http.Header{
+								"Content-Type": []string{"application/vnd.pypi.simple.v1+json"},
+							},
+							Body: io.NopCloser(bytes.NewBufferString(`{
+								"name": "some-package",
+								"files": [
+									{
+										"filename": "some-package-0.9.0.tar.gz",
+										"url": "https://files.pythonhosted.org/packages/some-package-0.9.0.tar.gz",
+										"hashes": {"sha256": "deadbeef"},
+										"upload-time": "2021-01-01T00:00:00.123456Z",
+										"yanked": "broken release"
+									},
+									{
+										"filename": "some-package-1.0.0-py3-none-any.whl",
+										"url": "https://files.pythonhosted.org/packages/some-package-1.0.0-py3-none-any.whl",
+										"hashes": {"sha256": "cafebabe"},
+										"requires-python": ">=3.6, !=3.0.*",
+										"upload-time": "2021-06-02T00:00:00.123456Z",
+										"yanked": false
+									},
+									{
+										"filename": "some-package-2.0.0.tar.gz",
+										"url": "https://files.pythonhosted.org/packages/some-package-2.0.0.tar.gz",
+										"hashes": {"sha256": "feedface"},
+										"upload-time": "2022-06-01T00:00:00.123456Z",
+										"yanked": false
+									}
+								],
+								"versions": ["0.9.0", "1.0.0", "2.0.0"]
+							}`)),
+						},
+					},
+				},
+				URLValidator: httpxtest.NewURLValidator(t),
+			},
+			want: &http.Response{
+				StatusCode: http.StatusOK,
+				Header: http.Header{
+					"Content-Type": []string{"text/html; charset=utf-8"},
+				},
+				Body: io.NopCloser(bytes.NewBufferString(`<!DOCTYPE html><html><body><a href="https://files.pythonhosted.org/packages/some-package-0.9.0.tar.gz#sha256=deadbeef" data-yanked="broken release">some-package-0.9.0.tar.gz</a><br/><a href="https://files.pythonhosted.org/packages/some-package-1.0.0-py3-none-any.whl#sha256=cafebabe" data-requires-python="&gt;=3.6, !=3.0.*">some-package-1.0.0-py3-none-any.whl</a><br/></body></html>`)),
+			},
+		},
+		{
 			name:      "invalid platform",
 			url:       "http://localhost:8081/some-package",
 			basicAuth: "invalid:2022-01-01T00:00:00Z",

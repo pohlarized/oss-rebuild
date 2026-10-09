@@ -43,6 +43,7 @@ var dockerRunPhaseTpls = template.Must(
 		"list":                   func(items ...string) []string { return items },
 		"manylinux2014RepoSetup": build.Manylinux2014RepoSetupScript,
 		"isManylinux2014":        build.IsManylinux2014,
+		"isManylinux2010":        build.IsManylinux2010,
 	}).Parse(
 		textwrap.Dedent(`
 			{{- define "setup" -}}
@@ -52,6 +53,8 @@ var dockerRunPhaseTpls = template.Must(
 			{{- if .UseTimewarp}}
 			{{- if eq .OS "alpine"}}
 			{{.PackageManager.InstallCommand (list "curl")}}
+			{{- else if isManylinux2010 .BaseImage}}
+			{{.PackageManager.InstallCommand (list "curl" "nc")}}
 			{{- else if or (eq .OS "centos") (eq .OS "almalinux")}}
 			{{.PackageManager.InstallCommand (list "curl" "nmap-ncat")}}
 			{{- else}}

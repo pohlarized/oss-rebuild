@@ -186,3 +186,27 @@ func HighestLibcTagString(platformTags string) string {
 	}
 	return highest.Raw
 }
+
+// Policy returns the PEP 600 / PEP 656 policy name (such as manylinux_2_17 or musllinux_1_2)
+// without the architecture suffix.
+func (t Tag) Policy() string {
+	prefix := "manylinux"
+	if t.LibcImpl == Musl {
+		prefix = "musllinux"
+	}
+	return fmt.Sprintf("%s_%d_%d", prefix, t.LibcVersion.Major, t.LibcVersion.Minor)
+}
+
+// HighestPolicy parses raw platform tags and returns the PEP 600 / PEP 656 policy name
+// for the tag with the highest libc version. Returns "" if parsing fails.
+func HighestPolicy(platformTags string) string {
+	tags, err := ParsePlatformTags(platformTags)
+	if err != nil || len(tags) == 0 {
+		return ""
+	}
+	highest, err := HighestLibcVersionTag(tags)
+	if err != nil {
+		return ""
+	}
+	return highest.Policy()
+}

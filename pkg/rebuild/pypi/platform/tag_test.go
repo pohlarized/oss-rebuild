@@ -297,3 +297,44 @@ func TestSelectBaseImage(t *testing.T) {
 		})
 	}
 }
+
+func TestHighestPolicy(t *testing.T) {
+	tests := []struct {
+		name        string
+		platformTag string
+		want        string
+	}{
+		{
+			name:        "Manylinux2014And2_17",
+			platformTag: "manylinux_2_17_x86_64.manylinux2014_x86_64",
+			want:        "manylinux_2_17",
+		},
+		{
+			name:        "Manylinux2014Single",
+			platformTag: "manylinux2014_x86_64",
+			want:        "manylinux_2_17",
+		},
+		{
+			name:        "Manylinux2_28Single",
+			platformTag: "manylinux_2_28_x86_64",
+			want:        "manylinux_2_28",
+		},
+		{
+			name:        "Musllinux1_2Single",
+			platformTag: "musllinux_1_2_x86_64",
+			want:        "musllinux_1_2",
+		},
+		{
+			name:        "InvalidTag",
+			platformTag: "any",
+			want:        "",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := HighestPolicy(tt.platformTag); got != tt.want {
+				t.Errorf("HighestPolicy(%q) = %q, want %q", tt.platformTag, got, tt.want)
+			}
+		})
+	}
+}

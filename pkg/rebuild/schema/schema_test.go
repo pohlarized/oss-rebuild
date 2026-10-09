@@ -154,6 +154,35 @@ pypi_platform_wheel_build:
 `,
 	},
 	{
+		name: "PlatformWheelBuildWithBaseImage",
+		strategy: &pypi.PlatformWheelBuild{
+			Location: rebuild.Location{
+				Dir:  "the_dir",
+				Ref:  "the_ref",
+				Repo: "the_repo",
+			},
+			PythonTag:    "cp38",
+			ABITag:       "cp38",
+			Requirements: []string{"req_a"},
+			PlatformTag:  "musllinux_1_2_x86_64",
+			BaseImage:    "quay.io/pypa/musllinux_1_2_x86_64:2026.03.20-1@sha256:5b6fe3ed82ff48748c5c528fc82e42674a5363890ed949923af65b0c5b5ef76c",
+		},
+		jsonEncoded: `{"pypi_platform_wheel_build":{"repo":"the_repo","ref":"the_ref","dir":"the_dir","python_tag":"cp38","abi_tag":"cp38","requirements":["req_a"],"platform_tag":"musllinux_1_2_x86_64","base_image":"quay.io/pypa/musllinux_1_2_x86_64:2026.03.20-1@sha256:5b6fe3ed82ff48748c5c528fc82e42674a5363890ed949923af65b0c5b5ef76c","registry_time":"0001-01-01T00:00:00Z"}}`,
+		yamlEncoded: `
+pypi_platform_wheel_build:
+  location:
+    repo: the_repo
+    ref: the_ref
+    dir: the_dir
+  python_tag: cp38
+  abi_tag: cp38
+  requirements:
+    - req_a
+  platform_tag: musllinux_1_2_x86_64
+  base_image: quay.io/pypa/musllinux_1_2_x86_64:2026.03.20-1@sha256:5b6fe3ed82ff48748c5c528fc82e42674a5363890ed949923af65b0c5b5ef76c
+`,
+	},
+	{
 		name: "CratesioCargoPackage",
 		strategy: &cratesio.CratesIOCargoPackage{
 			Location: rebuild.Location{

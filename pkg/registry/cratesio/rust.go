@@ -47,6 +47,9 @@ func HasMUSLBuild(version string) (bool, error) {
 // List generated with the following script:
 // curl -L https://github.com/rust-lang/rust/raw/9fa33b19f76b5b3173280b7a8e306bf8f6241344/RELEASES.md | rg --replace '$1 $2' -o 'Version (\S+) \(([^)]+)\)' | xargs -n 2 sh -c 'printf "newRelease(\"%s\", \"%s\", %s),\\n" "$0" "$1" $(curl -sILfo /dev/null https://static.rust-lang.org/dist/$1/rust-$0-x86_64-unknown-linux-musl.tar.gz && echo true || echo false)'
 var releases []release = []release{
+	newRelease("1.99.0", "2026-10-01", true),
+	newRelease("1.98.0", "2026-08-20", true),
+	newRelease("1.97.1", "2026-07-16", true),
 	newRelease("1.97.0", "2026-07-09", true),
 	newRelease("1.96.1", "2026-06-30", true),
 	newRelease("1.96.0", "2026-05-28", true),
