@@ -29,6 +29,9 @@ type dockerBuildContainerArgs struct {
 }
 
 // dockerBuildDockerfileTpl generates Dockerfiles for local Docker builds
+// NOTE: netcat is requested by its binary path because the providing package
+// differs across EL releases (nc on EL6, nmap-ncat on EL7+). yum and dnf
+// resolve /usr/bin paths from primary repository metadata.
 // NOTE: Layer mappings must be kept in sync with dockerfileLayers.
 var dockerBuildDockerfileTpl = template.Must(
 	template.New("docker build dockerfile").Funcs(template.FuncMap{
@@ -45,7 +48,7 @@ var dockerBuildDockerfileTpl = template.Must(
 			 {{- if eq .OS "alpine"}}
 			 {{.PackageManager.InstallCommand (list "curl")}}
 			 {{- else if eq .OS "centos"}}
-			 {{.PackageManager.InstallCommand (list "curl" "nmap-ncat")}}
+			 {{.PackageManager.InstallCommand (list "curl" "/usr/bin/nc")}}
 			 {{- else}}
 			 {{.PackageManager.UpdateCmd}}
 			 {{.PackageManager.InstallCommand (list "curl" "netcat-openbsd")}}

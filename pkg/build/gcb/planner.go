@@ -241,6 +241,9 @@ type gcbContainerArgs struct {
 }
 
 // gcbDockerfileTpl generates Dockerfiles for use in GCB
+// NOTE: netcat is requested by its binary path because the providing package
+// differs across EL releases (nc on EL6, nmap-ncat on EL7+). yum and dnf
+// resolve /usr/bin paths from primary repository metadata.
 // NOTE: Layer mappings must be kept in sync with dockerfileLayers.
 var gcbDockerfileTpl = template.Must(
 	template.New("gcb dockerfile").Funcs(template.FuncMap{
@@ -257,7 +260,7 @@ var gcbDockerfileTpl = template.Must(
 			 {{- if eq .OS "alpine"}}
 			 {{.PackageManager.InstallCommand (list "curl")}}
 			 {{- else if eq .OS "centos"}}
-			 {{.PackageManager.InstallCommand (list "curl" "nmap-ncat")}}
+			 {{.PackageManager.InstallCommand (list "curl" "/usr/bin/nc")}}
 			 {{- else}}
 			 {{.PackageManager.UpdateCmd}}
 			 {{.PackageManager.InstallCommand (list "curl" "netcat-openbsd")}}
