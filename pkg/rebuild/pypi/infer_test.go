@@ -594,3 +594,106 @@ func TestExtractWheelTags(t *testing.T) {
 		})
 	}
 }
+
+func TestInferLegacyPythonBaseImage(t *testing.T) {
+	upload2026 := time.Date(2026, time.February, 8, 0, 0, 0, 0, time.UTC)
+	tests := []struct {
+		name          string
+		tags          WheelTags
+		baseImageRepo string
+		cibwVersion   string
+		uploadTime    time.Time
+		want          string
+	}{
+		{
+			name:          "ModernCP310LeavesBaseImageEmpty",
+			tags:          WheelTags{Python: "cp310", ABI: "cp310", Platform: "manylinux_2_28_x86_64"},
+			baseImageRepo: "quay.io/pypa/manylinux_2_28_x86_64",
+			uploadTime:    upload2026,
+			want:          "",
+		},
+		{
+			name:          "ABI3CP37LeavesBaseImageEmpty",
+			tags:          WheelTags{Python: "cp37", ABI: "abi3", Platform: "manylinux_2_28_x86_64"},
+			baseImageRepo: "quay.io/pypa/manylinux_2_28_x86_64",
+			uploadTime:    upload2026,
+			want:          "",
+		},
+		{
+			name:          "Musllinux1_1CP38LeavesBaseImageEmpty",
+			tags:          WheelTags{Python: "cp38", ABI: "cp38", Platform: "musllinux_1_1_x86_64"},
+			baseImageRepo: "quay.io/pypa/musllinux_1_1_x86_64",
+			uploadTime:    upload2026,
+			want:          "",
+		},
+		{
+			name:          "CP27SelectsPinnedManylinux2010",
+			tags:          WheelTags{Python: "cp27", ABI: "cp27mu", Platform: "manylinux1_x86_64"},
+			baseImageRepo: "quay.io/pypa/manylinux2014_x86_64",
+			uploadTime:    upload2026,
+			want:          "quay.io/pypa/manylinux2010_x86_64:2021-02-06-3d322a5",
+		},
+		{
+			name:          "CP37Manylinux2010SelectsFinalManylinux2010",
+			tags:          WheelTags{Python: "cp37", ABI: "cp37m", Platform: "manylinux_2_5_x86_64.manylinux1_x86_64.manylinux_2_12_x86_64.manylinux2010_x86_64"},
+			baseImageRepo: "quay.io/pypa/manylinux2014_x86_64",
+			uploadTime:    upload2026,
+			want:          "quay.io/pypa/manylinux2010_x86_64:2022-08-05-4535177",
+		},
+		{
+			name:          "CP37SingleManylinux2010TagSelectsFinalManylinux2010",
+			tags:          WheelTags{Python: "cp37", ABI: "cp37m", Platform: "manylinux2010_x86_64"},
+			baseImageRepo: "quay.io/pypa/manylinux2014_x86_64",
+			uploadTime:    upload2026,
+			want:          "quay.io/pypa/manylinux2010_x86_64:2022-08-05-4535177",
+		},
+		{
+			name:          "CP37Manylinux2010BelowHigherTagKeepsCibuildwheelPin",
+			tags:          WheelTags{Python: "cp37", ABI: "cp37m", Platform: "manylinux2010_x86_64.manylinux_2_28_x86_64"},
+			baseImageRepo: "quay.io/pypa/manylinux_2_28_x86_64",
+			uploadTime:    upload2026,
+			want:          "quay.io/pypa/manylinux_2_28_x86_64:2025.04.19-1@sha256:7d89e036b9493f94a0bb252c1db4ab3f71f5b83874cb274f85b3c40be712f513",
+		},
+		{
+			name:          "CP36Manylinux2010KeepsManylinux2014Pin",
+			tags:          WheelTags{Python: "cp36", ABI: "cp36m", Platform: "manylinux_2_12_x86_64.manylinux2010_x86_64"},
+			baseImageRepo: "quay.io/pypa/manylinux2014_x86_64",
+			uploadTime:    upload2026,
+			want:          "quay.io/pypa/manylinux2014_x86_64:2025.04.19-1@sha256:df319a1a2a0b67fabde721e7a2008ad16257e348172cc0a29d0f1f09b82f1aa8",
+		},
+		{
+			name:          "CP38UsesWorkflowPin",
+			tags:          WheelTags{Python: "cp38", ABI: "cp38", Platform: "manylinux_2_28_x86_64"},
+			baseImageRepo: "quay.io/pypa/manylinux_2_28_x86_64",
+			cibwVersion:   "3.1.4",
+			uploadTime:    upload2026,
+			want:          "quay.io/pypa/manylinux_2_28_x86_64:2025.08.15-1@sha256:6f42f4382bc73e9584206e6722e001922c0d4846c932fccaa04c0e35903b717d",
+		},
+		{
+			name:          "CP36FallsBackTo2_23_3WhenWorkflowHasNo2xPin",
+			tags:          WheelTags{Python: "cp36", ABI: "cp36m", Platform: "musllinux_1_2_x86_64"},
+			baseImageRepo: "quay.io/pypa/musllinux_1_2_x86_64",
+			uploadTime:    upload2026,
+			want:          "quay.io/pypa/musllinux_1_2_x86_64:2025.04.19-1@sha256:37645a6deff8f81eabf7e709c719f4ef2d11182e10997593d2f9f7d2dd9864cd",
+		},
+		{
+			name:          "CP37OnManylinux2014ClampsOldWorkflowPinTo2_20_0",
+			tags:          WheelTags{Python: "cp37", ABI: "cp37m", Platform: "manylinux_2_17_x86_64.manylinux2014_x86_64"},
+			baseImageRepo: "quay.io/pypa/manylinux2014_x86_64",
+			cibwVersion:   "2.10.2",
+			uploadTime:    time.Date(2023, time.May, 3, 0, 0, 0, 0, time.UTC),
+			want:          "quay.io/pypa/manylinux2014_x86_64:2024.08.03-1@sha256:e620e1be73a5cc9aa8fbefa17faf545b61aa9417887030dae568db2137cb19b4",
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			var got string
+			if needsLegacyPythonBaseImage(tc.tags, tc.baseImageRepo) {
+				got = inferLegacyPythonBaseImage(tc.tags, tc.baseImageRepo, tc.cibwVersion, tc.uploadTime)
+			}
+			if got != tc.want {
+				t.Errorf("got %q, want %q", got, tc.want)
+			}
+		})
+	}
+}

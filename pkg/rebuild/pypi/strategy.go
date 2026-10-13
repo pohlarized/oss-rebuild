@@ -133,17 +133,21 @@ type PlatformWheelBuild struct {
 	ABITag       string    `json:"abi_tag,omitempty" yaml:"abi_tag,omitempty"`
 	Requirements []string  `json:"requirements" yaml:"requirements"`
 	PlatformTag  string    `json:"platform_tag,omitempty" yaml:"platform_tag,omitempty"`
+	BaseImage    string    `json:"base_image,omitempty" yaml:"base_image,omitempty"`
 	RegistryTime time.Time `json:"registry_time" yaml:"registry_time,omitempty"`
 }
 
 var _ rebuild.Strategy = &PlatformWheelBuild{}
 
-func (b *PlatformWheelBuild) BaseImage() (string, error) {
+func (b *PlatformWheelBuild) resolveBaseImage() (string, error) {
+	if b.BaseImage != "" {
+		return b.BaseImage, nil
+	}
 	return platform.SelectBaseImage(b.PlatformTag)
 }
 
 func (b *PlatformWheelBuild) ToWorkflow() (*rebuild.WorkflowStrategy, error) {
-	baseImage, err := b.BaseImage()
+	baseImage, err := b.resolveBaseImage()
 	if err != nil {
 		return nil, errors.Wrap(err, "selecting base image")
 	}

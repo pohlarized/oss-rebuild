@@ -6,6 +6,15 @@ package platform
 import "github.com/pkg/errors"
 
 const (
+	// ImageManylinux2010CP27X86_64 is the last manylinux2010 image that still
+	// shipped CPython 2.7. pypa/manylinux removed cp27 from the images built
+	// right after it. See https://github.com/pypa/manylinux.
+	ImageManylinux2010CP27X86_64 = "quay.io/pypa/manylinux2010_x86_64:2021-02-06-3d322a5"
+	// ImageManylinux2010FinalX86_64 is the final manylinux2010 image that
+	// pypa/manylinux published before the image was end-of-lifed along with
+	// CentOS 6. See https://github.com/pypa/manylinux.
+	ImageManylinux2010FinalX86_64 = "quay.io/pypa/manylinux2010_x86_64:2022-08-05-4535177"
+
 	ImageManylinux2014X86_64 = "quay.io/pypa/manylinux2014_x86_64"
 	ImageManylinux2_28X86_64 = "quay.io/pypa/manylinux_2_28_x86_64"
 	ImageManylinux2_34X86_64 = "quay.io/pypa/manylinux_2_34_x86_64"

@@ -623,10 +623,12 @@ rm -rf the_dir/dist/repaired
 	}
 }
 
-func TestPlatformWheelBuild_BaseImage(t *testing.T) {
+func TestPlatformWheelBuild_resolveBaseImage(t *testing.T) {
+	const pinned = "quay.io/pypa/musllinux_1_2_x86_64:2026.03.20-1@sha256:5b6fe3ed82ff48748c5c528fc82e42674a5363890ed949923af65b0c5b5ef76c"
 	tests := []struct {
 		name        string
 		platformTag string
+		baseImage   string
 		want        string
 		wantErr     bool
 	}{
@@ -661,6 +663,18 @@ func TestPlatformWheelBuild_BaseImage(t *testing.T) {
 			want:        "quay.io/pypa/musllinux_1_2_x86_64",
 		},
 		{
+			name:        "explicit base image is used verbatim",
+			platformTag: "musllinux_1_2_x86_64",
+			baseImage:   pinned,
+			want:        pinned,
+		},
+		{
+			name:        "explicit base image skips platform tag selection",
+			platformTag: "invalid_tag",
+			baseImage:   pinned,
+			want:        pinned,
+		},
+		{
 			name:        "empty platform tag returns error",
 			platformTag: "",
 			wantErr:     true,
@@ -673,13 +687,13 @@ func TestPlatformWheelBuild_BaseImage(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			b := &PlatformWheelBuild{PlatformTag: tt.platformTag}
-			got, err := b.BaseImage()
+			b := &PlatformWheelBuild{PlatformTag: tt.platformTag, BaseImage: tt.baseImage}
+			got, err := b.resolveBaseImage()
 			if (err != nil) != tt.wantErr {
-				t.Fatalf("BaseImage() error = %v, wantErr %v", err, tt.wantErr)
+				t.Fatalf("resolveBaseImage() error = %v, wantErr %v", err, tt.wantErr)
 			}
 			if !tt.wantErr && got != tt.want {
-				t.Errorf("BaseImage() = %q, want %q", got, tt.want)
+				t.Errorf("resolveBaseImage() = %q, want %q", got, tt.want)
 			}
 		})
 	}

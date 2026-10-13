@@ -19,6 +19,7 @@ import (
 
 	"github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/plumbing"
+	"github.com/go-git/go-git/v5/plumbing/object"
 	"github.com/go-git/go-git/v5/plumbing/transport"
 	"github.com/google/oss-rebuild/internal/gitx"
 	"github.com/google/oss-rebuild/internal/uri"
@@ -454,13 +455,14 @@ func inferBuild(ctx context.Context, t rebuild.Target, mux rebuild.RegistryMux, 
 		// We'll get them from pyproject.toml below
 		reqs = []string{}
 	}
+	var tree *object.Tree
 	// Extract pyproject.toml requirements.
 	{
 		commit, err := rcfg.Repository.CommitObject(plumbing.NewHash(ref))
 		if err != nil {
 			return nil, errors.Wrapf(err, "Failed to get commit object")
 		}
-		tree, err := commit.Tree()
+		tree, err = commit.Tree()
 		if err != nil {
 			return nil, errors.Wrapf(err, "Failed to get tree")
 		}
@@ -491,8 +493,17 @@ func inferBuild(ctx context.Context, t rebuild.Target, mux rebuild.RegistryMux, 
 		}, nil
 	} else if strings.HasSuffix(a.Filename, ".whl") && !strings.HasSuffix(a.Filename, "none-any.whl") {
 		tags := extractWheelTags(a.Filename)
-		if _, err := platform.ParsePlatformTags(tags.Platform); err != nil {
+		baseImageRepo, err := platform.SelectBaseImage(tags.Platform)
+		if err != nil {
 			return nil, errors.Wrapf(err, "unsupported platform tag in wheel filename %s", a.Filename)
+		}
+		var baseImage string
+		if needsLegacyPythonBaseImage(tags, baseImageRepo) {
+			cibwVersion, err := extractCibuildwheelVersionForPython(tree, tags.Python)
+			if err != nil {
+				log.Println(errors.Wrap(err, "extracting cibuildwheel version"))
+			}
+			baseImage = inferLegacyPythonBaseImage(tags, baseImageRepo, cibwVersion, a.UploadTime)
 		}
 		return &PlatformWheelBuild{
 			Location: rebuild.Location{
@@ -503,6 +514,7 @@ func inferBuild(ctx context.Context, t rebuild.Target, mux rebuild.RegistryMux, 
 			PythonTag:    tags.Python,
 			ABITag:       tags.ABI,
 			PlatformTag:  tags.Platform,
+			BaseImage:    baseImage,
 			Requirements: reqs,
 			RegistryTime: a.UploadTime,
 		}, nil
@@ -519,6 +531,56 @@ func inferBuild(ctx context.Context, t rebuild.Target, mux rebuild.RegistryMux, 
 			PythonTag:     pythonTag(a.Filename, reqs),
 		}, nil
 	}
+}
+
+// needsLegacyPythonBaseImage reports whether a platform wheel requires a
+// historical container image pin because its CPython tag was removed from the
+// unpinned latest PyPA image. abi3 wheels can build with newer interpreters,
+// and musllinux_1_1_x86_64:latest remains frozen at its final image
+// (2024.10.26-1, the last one cibuildwheel pinned), which still ships cp36
+// through cp313.
+func needsLegacyPythonBaseImage(tags WheelTags, baseImageRepo string) bool {
+	if tags.ABI == "abi3" || baseImageRepo == platform.ImageMusllinux1_1X86_64 {
+		return false
+	}
+	switch tags.Python {
+	case "cp27", "cp36", "cp37", "cp38":
+		return true
+	default:
+		return false
+	}
+}
+
+// inferLegacyPythonBaseImage selects a pinned PyPA image that still ships the
+// wheel's legacy CPython interpreter.
+func inferLegacyPythonBaseImage(tags WheelTags, baseImageRepo, cibwVersion string, uploadTime time.Time) string {
+	if tags.Python == "cp27" {
+		return platform.ImageManylinux2010CP27X86_64
+	}
+	// NOTE: A wheel whose highest libc tag is manylinux2010 is repaired with
+	// auditwheel repair --plat manylinux2010_x86_64, which only succeeds on
+	// the CentOS 6 toolchain of the manylinux2010 image. cp37 is the only
+	// legacy interpreter for which this routing has been verified against
+	// real builds, so cp36 and cp38 manylinux2010 wheels intentionally keep
+	// the manylinux2014 pin until verified.
+	if tags.Python == "cp37" && isManylinux2010Tag(platform.HighestLibcTagString(tags.Platform)) {
+		return platform.ImageManylinux2010FinalX86_64
+	}
+	if cibwVersion != "" {
+		if ref, ok := platform.CibuildwheelImageForPython(baseImageRepo, cibwVersion, tags.Python); ok {
+			return ref
+		}
+	}
+	if ref, _, ok := platform.CibuildwheelImageAtForPython(baseImageRepo, tags.Python, uploadTime); ok {
+		return ref
+	}
+	return ""
+}
+
+// isManylinux2010Tag reports whether tag is the x86_64 manylinux2010 tag in
+// its PEP 571 spelling or its PEP 600 alias.
+func isManylinux2010Tag(tag string) bool {
+	return tag == "manylinux2010_x86_64" || tag == "manylinux_2_12_x86_64"
 }
 
 var (
