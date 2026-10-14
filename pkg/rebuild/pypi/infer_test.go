@@ -690,6 +690,8 @@ func testCommit(c string) string {
 func TestInferBaseImage(t *testing.T) {
 	tests := []struct {
 		name        string
+		pythonTag   string
+		abiTag      string
 		platformTag string
 		cibwVersion string
 		uploaded    time.Time
@@ -757,11 +759,41 @@ func TestInferBaseImage(t *testing.T) {
 			uploaded:    time.Date(2026, time.May, 1, 0, 0, 0, 0, time.UTC),
 			want:        "",
 		},
+		{
+			// 3.4.0 no longer builds cp37, so the highest release that does
+			// pins the image.
+			name:        "DroppedInterpreter",
+			pythonTag:   "cp37",
+			abiTag:      "cp37m",
+			platformTag: "manylinux2014_x86_64",
+			uploaded:    time.Date(2026, time.May, 1, 0, 0, 0, 0, time.UTC),
+			want:        "quay.io/pypa/manylinux2014_x86_64:2026.02.20-1@" + testDigest("1"),
+		},
+		{
+			name:        "ConfigVersionWithoutInterpreter",
+			pythonTag:   "cp37",
+			abiTag:      "cp37m",
+			platformTag: "manylinux2014_x86_64",
+			cibwVersion: "3.4.0",
+			uploaded:    time.Date(2026, time.May, 1, 0, 0, 0, 0, time.UTC),
+			want:        "quay.io/pypa/manylinux2014_x86_64:2026.02.20-1@" + testDigest("1"),
+		},
+		{
+			// abi3 wheels for an old minimum version can be built by newer
+			// interpreters.
+			name:        "Abi3",
+			pythonTag:   "cp37",
+			abiTag:      "abi3",
+			platformTag: "manylinux2014_x86_64",
+			uploaded:    time.Date(2026, time.May, 1, 0, 0, 0, 0, time.UTC),
+			want:        "quay.io/pypa/manylinux2014_x86_64:2026.03.01-1@" + testDigest("d"),
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := inferBaseImage(testPins, tt.platformTag, tt.cibwVersion, tt.uploaded); got != tt.want {
-				t.Errorf("inferBaseImage(%q, %q, %v) = %q, want %q", tt.platformTag, tt.cibwVersion, tt.uploaded, got, tt.want)
+			tags := WheelTags{Python: tt.pythonTag, ABI: tt.abiTag, Platform: tt.platformTag}
+			if got := inferBaseImage(testPins, tags, tt.cibwVersion, tt.uploaded); got != tt.want {
+				t.Errorf("inferBaseImage(%+v, %q, %v) = %q, want %q", tags, tt.cibwVersion, tt.uploaded, got, tt.want)
 			}
 		})
 	}

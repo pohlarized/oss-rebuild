@@ -40,6 +40,40 @@ type PinnedImage struct {
 // against a synthetic table.
 type CibuildwheelPinTable []CibuildwheelRelease
 
+// cibuildwheelPythonRemovals maps CPython tags to the first cibuildwheel
+// release that no longer builds wheels for that interpreter.
+// https://cibuildwheel.pypa.io/en/stable/changelog/
+var cibuildwheelPythonRemovals = map[string]string{
+	"cp27": "2.0.0",
+	"cp35": "2.0.0",
+	"cp36": "3.0.0",
+	"cp37": "3.0.0",
+	"cp38": "4.0.0",
+}
+
+// CibuildwheelBuildsPython reports whether cibuildwheel version builds wheels
+// for the CPython interpreter pythonTag, such as "cp38". Interpreters that no
+// release has dropped yet are built by every version.
+func CibuildwheelBuildsPython(version, pythonTag string) bool {
+	removed, ok := cibuildwheelPythonRemovals[pythonTag]
+	return !ok || semver.Cmp(version, removed) < 0
+}
+
+// BuildingPython returns the releases that build wheels for the CPython
+// interpreter pythonTag. An empty pythonTag selects every release.
+func (p CibuildwheelPinTable) BuildingPython(pythonTag string) CibuildwheelPinTable {
+	if pythonTag == "" {
+		return p
+	}
+	var building CibuildwheelPinTable
+	for _, rel := range p {
+		if CibuildwheelBuildsPython(rel.Version, pythonTag) {
+			building = append(building, rel)
+		}
+	}
+	return building
+}
+
 // ImageAt returns the digest-pinned reference to the repo image that the
 // highest cibuildwheel version published at or before t pins.
 //

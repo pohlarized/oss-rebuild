@@ -180,9 +180,10 @@ func TestExtractCibuildwheelVersion(t *testing.T) {
 		    steps:
 		      - uses: pypa/cibuildwheel@v2.16.2`)
 	tests := []struct {
-		name  string
-		files gitxtest.FileContent
-		want  string
+		name      string
+		files     gitxtest.FileContent
+		pythonTag string
+		want      string
 	}{
 		{
 			// NOTE: 2.3.1 sorts above 2.16.2 as a string.
@@ -196,6 +197,32 @@ func TestExtractCibuildwheelVersion(t *testing.T) {
 				".github/workflows/wheels.yml": wheels,
 			},
 			want: "2.16.2",
+		},
+		{
+			name: "SkipsVersionsWithoutInterpreter",
+			files: gitxtest.FileContent{
+				".github/workflows/next.yml": textwrap.Dedent(`
+					jobs:
+					  wheels:
+					    steps:
+					      - uses: pypa/cibuildwheel@v3.1.0`),
+				".github/workflows/wheels.yml": wheels,
+			},
+			pythonTag: "cp37",
+			want:      "2.16.2",
+		},
+		{
+			name: "KeepsVersionsWithInterpreter",
+			files: gitxtest.FileContent{
+				".github/workflows/next.yml": textwrap.Dedent(`
+					jobs:
+					  wheels:
+					    steps:
+					      - uses: pypa/cibuildwheel@v3.1.0`),
+				".github/workflows/wheels.yml": wheels,
+			},
+			pythonTag: "cp312",
+			want:      "3.1.0",
 		},
 		{
 			name: "IgnoresNonWorkflowFiles",
@@ -215,7 +242,7 @@ func TestExtractCibuildwheelVersion(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			repo := must(gitxtest.CreateRepo([]gitxtest.Commit{{ID: "initial-commit", Files: tc.files}}, nil))
 			commit := must(repo.CommitObject(repo.Commits["initial-commit"]))
-			got, err := extractCibuildwheelVersion(must(commit.Tree()), testPins, time.Time{})
+			got, err := extractCibuildwheelVersion(must(commit.Tree()), testPins, tc.pythonTag, time.Time{})
 			if err != nil {
 				t.Fatalf("extractCibuildwheelVersion() returned error: %v", err)
 			}

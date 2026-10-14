@@ -49,10 +49,12 @@ type ghaStep struct {
 }
 
 // extractCibuildwheelVersion returns the highest cibuildwheel version that the
-// GitHub Actions workflows in tree pinned at the time of the upload, or "" if
-// they pinned none. Floating tags and commit-pinned uses of the cibuildwheel
-// action are resolved to versions with pins.
-func extractCibuildwheelVersion(tree *object.Tree, pins platform.CibuildwheelPinTable, uploaded time.Time) (string, error) {
+// GitHub Actions workflows in tree pinned at the time of the upload and that
+// builds wheels for the CPython interpreter pythonTag, or "" if they pinned
+// none. An empty pythonTag accepts every version. Floating tags and
+// commit-pinned uses of the cibuildwheel action are resolved to versions with
+// pins.
+func extractCibuildwheelVersion(tree *object.Tree, pins platform.CibuildwheelPinTable, pythonTag string, uploaded time.Time) (string, error) {
 	workflows, err := tree.Tree(workflowsDir)
 	if err == object.ErrDirectoryNotFound {
 		return "", nil
@@ -73,6 +75,12 @@ func extractCibuildwheelVersion(tree *object.Tree, pins platform.CibuildwheelPin
 			return "", errors.Wrapf(err, "reading workflow %s", entry.Name)
 		}
 		for _, v := range cibuildwheelVersions([]byte(contents), pins, uploaded) {
+			// NOTE: A workflow that pins a release which cannot build the
+			// interpreter did not build this wheel, such as a stale workflow
+			// next to the one for legacy interpreters.
+			if !platform.CibuildwheelBuildsPython(v, pythonTag) {
+				continue
+			}
 			if highest == "" || semver.Cmp(v, highest) > 0 {
 				highest = v
 			}

@@ -133,6 +133,55 @@ func TestCibuildwheelPinTable_ImageAt(t *testing.T) {
 	}
 }
 
+func TestCibuildwheelBuildsPython(t *testing.T) {
+	tests := []struct {
+		name      string
+		version   string
+		pythonTag string
+		want      bool
+	}{
+		{name: "BeforeRemoval", version: "2.23.4", pythonTag: "cp37", want: true},
+		{name: "AtRemoval", version: "3.0.0", pythonTag: "cp37", want: false},
+		{name: "AfterRemoval", version: "3.4.1", pythonTag: "cp36", want: false},
+		{name: "LaterRemoval", version: "3.4.1", pythonTag: "cp38", want: true},
+		{name: "Python27", version: "2.0.0", pythonTag: "cp27", want: false},
+		{name: "Supported", version: "4.3.1", pythonTag: "cp314", want: true},
+		{name: "NoInterpreter", version: "4.3.1", pythonTag: "", want: true},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := CibuildwheelBuildsPython(tc.version, tc.pythonTag); got != tc.want {
+				t.Errorf("CibuildwheelBuildsPython(%q, %q) = %v, want %v", tc.version, tc.pythonTag, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestCibuildwheelPinTable_BuildingPython(t *testing.T) {
+	pins := CibuildwheelPinTable{{Version: "2.23.4"}, {Version: "3.0.0"}, {Version: "4.0.0"}}
+	tests := []struct {
+		name      string
+		pythonTag string
+		want      []string
+	}{
+		{name: "DroppedEarly", pythonTag: "cp37", want: []string{"2.23.4"}},
+		{name: "DroppedLater", pythonTag: "cp38", want: []string{"2.23.4", "3.0.0"}},
+		{name: "Supported", pythonTag: "cp312", want: []string{"2.23.4", "3.0.0", "4.0.0"}},
+		{name: "NoInterpreter", pythonTag: "", want: []string{"2.23.4", "3.0.0", "4.0.0"}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			var got []string
+			for _, rel := range pins.BuildingPython(tc.pythonTag) {
+				got = append(got, rel.Version)
+			}
+			if diff := cmp.Diff(tc.want, got); diff != "" {
+				t.Errorf("BuildingPython(%q) returned diff (-want +got):\n%s", tc.pythonTag, diff)
+			}
+		})
+	}
+}
+
 func TestCibuildwheelPinTable_Image(t *testing.T) {
 	digest := "sha256:" + strings.Repeat("1", 64)
 	pins := CibuildwheelPinTable{
