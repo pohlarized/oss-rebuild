@@ -563,6 +563,10 @@ func inferBaseImage(pins platform.CibuildwheelPinTable, tags WheelTags, cibwVers
 		log.Println(errors.Wrap(err, "Failed to select base image"))
 		return ""
 	}
+	fallback, legacy := manylinux2010Fallback(tags)
+	if legacy {
+		repo = platform.ImageManylinux2010X86_64
+	}
 	pins = pins.BuildingPython(buildInterpreter(tags))
 	if cibwVersion != "" {
 		if ref, ok := pins.Image(repo, cibwVersion); ok {
@@ -578,6 +582,12 @@ func inferBaseImage(pins platform.CibuildwheelPinTable, tags WheelTags, cibwVers
 	// compiler in .comment, the CPython version in PY_VERSION_HEX and the
 	// auditwheel version in its SBOM.
 	ref, version, ok := pins.ImageAt(repo, uploaded)
+	if !ok && legacy {
+		// NOTE: The image that cibuildwheel pinned at the time has expired, so
+		// the fallback is newer than the image that built the wheel.
+		log.Printf("No cibuildwheel pin known for %s at %s, using %s", repo, uploaded.Format(time.RFC3339), fallback)
+		return fallback
+	}
 	if !ok {
 		log.Printf("No cibuildwheel pin known for %s at %s, using the unpinned image", repo, uploaded.Format(time.RFC3339))
 		return ""
@@ -595,6 +605,51 @@ func buildInterpreter(tags WheelTags) string {
 	}
 	return tags.Python
 }
+
+// manylinux2010Fallback reports whether an x86_64 manylinux wheel was built
+// in a manylinux2010 image rather than the image that SelectBaseImage returns.
+// fallback is the pinned manylinux2010 image to use if the pin table has none.
+//
+// Wheels whose highest platform tag is manylinux2010 were built in a
+// manylinux2010 image, by the same reasoning as in SelectBaseImage. auditwheel
+// only repairs a wheel built against a newer glibc to that policy if it links
+// no newer symbols. CPython 2.7 wheels tagged manylinux1 are built in the
+// manylinux2010 image too, since no manylinux1 image is supported and no
+// manylinux2014 image that quay.io still serves ships CPython 2.7. Wheels for
+// an interpreter that no pinned manylinux2010 image ships keep the image that
+// SelectBaseImage returns.
+func manylinux2010Fallback(tags WheelTags) (fallback string, ok bool) {
+	parsed, err := platform.ParsePlatformTags(tags.Platform)
+	if err != nil {
+		return "", false
+	}
+	highest, err := platform.HighestLibcVersionTag(parsed)
+	if err != nil || highest.LibcImpl != platform.Glibc || highest.Arch != "x86_64" {
+		return "", false
+	}
+	manylinux2010 := platform.Version{Major: 2, Minor: 12}
+	interpreter := buildInterpreter(tags)
+	switch {
+	case manylinux2010.Less(highest.LibcVersion):
+		return "", false
+	case interpreter == "cp27":
+		return platform.ImageManylinux2010Python27X86_64, true
+	case highest.LibcVersion != manylinux2010:
+		return "", false
+	case manylinux2010FinalInterpreters[interpreter]:
+		return platform.ImageManylinux2010FinalX86_64, true
+	case interpreter == "cp35":
+		return platform.ImageManylinux2010Python27X86_64, true
+	default:
+		return "", false
+	}
+}
+
+// manylinux2010FinalInterpreters holds the interpreters that
+// platform.ImageManylinux2010FinalX86_64 ships. A wheel whose highest tag is
+// manylinux2010 is only built in a manylinux2010 image for these. The empty
+// string stands for abi3 wheels.
+var manylinux2010FinalInterpreters = map[string]bool{"": true, "cp36": true, "cp37": true, "cp38": true, "cp39": true, "cp310": true}
 
 var (
 	// setuptools 66.1.0 (released 2023-01-20) was the first release whose

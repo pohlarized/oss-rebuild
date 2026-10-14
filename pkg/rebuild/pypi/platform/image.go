@@ -5,16 +5,31 @@ package platform
 
 import "github.com/pkg/errors"
 
-// The PyPA build image repositories that SelectBaseImage returns.
+// The PyPA build image repositories that the cibuildwheel pin table covers.
+// SelectBaseImage returns all of them except manylinux2010.
 // NOTE: gen_cibuildwheel_images.go lists these by name to generate the
 // cibuildwheel pin table. Keep its supportedRepos in sync.
 const (
+	ImageManylinux2010X86_64 = "quay.io/pypa/manylinux2010_x86_64"
 	ImageManylinux2014X86_64 = "quay.io/pypa/manylinux2014_x86_64"
 	ImageManylinux2_28X86_64 = "quay.io/pypa/manylinux_2_28_x86_64"
 	ImageManylinux2_34X86_64 = "quay.io/pypa/manylinux_2_34_x86_64"
 
 	ImageMusllinux1_1X86_64 = "quay.io/pypa/musllinux_1_1_x86_64"
 	ImageMusllinux1_2X86_64 = "quay.io/pypa/musllinux_1_2_x86_64"
+)
+
+// Pinned references to manylinux2010 images for wheels that the pin table has
+// no image for. PyPA stopped building manylinux2010 images at the end of life
+// of CentOS 6. The manylinux retention policy keeps both tags indefinitely.
+const (
+	// ImageManylinux2010Python27X86_64 is the image that cibuildwheel 1.10.0
+	// to 1.12.0 pin. These are the last releases that build wheels for
+	// CPython 2.7 and 3.5. It ships CPython 2.7 and 3.5 to 3.9.
+	ImageManylinux2010Python27X86_64 = ImageManylinux2010X86_64 + ":2021-02-06-3d322a5@sha256:06ad27237d6dcd3f7a5fdfda1f998abc5557e7dc790985a7f3d439f969718a8e"
+	// ImageManylinux2010FinalX86_64 is the last manylinux2010 image. It ships
+	// CPython 3.6 to 3.10.
+	ImageManylinux2010FinalX86_64 = ImageManylinux2010X86_64 + ":2022-08-05-4535177@sha256:3b5eb5ab9bc73b93740ae4eda9962078951cd3bb7efe837b770360e78c7366fb"
 )
 
 // SelectBaseImage selects the appropriate PyPA container image for a given platform tag

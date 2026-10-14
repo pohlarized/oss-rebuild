@@ -638,6 +638,14 @@ func TestBackendRequirements(t *testing.T) {
 // maintenance release of an older major version published after a newer one.
 var testPins = platform.CibuildwheelPinTable{
 	{
+		Version:   "1.12.0",
+		Published: time.Date(2021, time.June, 22, 0, 0, 0, 0, time.UTC),
+		Commit:    testCommit("3"),
+		Images: map[string]platform.PinnedImage{
+			platform.ImageManylinux2010X86_64: {Tag: "2021-02-06-3d322a5", Digest: testDigest("9")},
+		},
+	},
+	{
 		Version:   "2.0.0",
 		Published: time.Date(2021, time.July, 1, 0, 0, 0, 0, time.UTC),
 		Commit:    testCommit("4"),
@@ -650,6 +658,7 @@ var testPins = platform.CibuildwheelPinTable{
 		Published: time.Date(2023, time.October, 10, 0, 0, 0, 0, time.UTC),
 		Commit:    testCommit("5"),
 		Images: map[string]platform.PinnedImage{
+			platform.ImageManylinux2010X86_64: {Tag: "2022-08-05-4535177", Digest: testDigest("8")},
 			platform.ImageManylinux2014X86_64: {Tag: "2023-10-03-72cdc42", Digest: testDigest("a")},
 			platform.ImageManylinux2_28X86_64: {Tag: "2023-10-03-72cdc42", Digest: testDigest("b")},
 			platform.ImageMusllinux1_1X86_64:  {Tag: "2023-10-03-72cdc42", Digest: testDigest("c")},
@@ -787,6 +796,129 @@ func TestInferBaseImage(t *testing.T) {
 			platformTag: "manylinux2014_x86_64",
 			uploaded:    time.Date(2026, time.May, 1, 0, 0, 0, 0, time.UTC),
 			want:        "quay.io/pypa/manylinux2014_x86_64:2026.03.01-1@" + testDigest("d"),
+		},
+		{
+			// No retained pin of a release that builds cp27 predates the
+			// upload.
+			name:        "Python27BeforePin",
+			pythonTag:   "cp27",
+			abiTag:      "cp27mu",
+			platformTag: "manylinux1_x86_64",
+			uploaded:    time.Date(2020, time.May, 1, 0, 0, 0, 0, time.UTC),
+			want:        platform.ImageManylinux2010Python27X86_64,
+		},
+		{
+			name:        "Python27",
+			pythonTag:   "cp27",
+			abiTag:      "cp27mu",
+			platformTag: "manylinux1_x86_64",
+			uploaded:    time.Date(2026, time.May, 1, 0, 0, 0, 0, time.UTC),
+			want:        "quay.io/pypa/manylinux2010_x86_64:2021-02-06-3d322a5@" + testDigest("9"),
+		},
+		{
+			// A wheel built in a manylinux2014 image keeps that repository,
+			// although no pinned image of it ships cp27.
+			name:        "Python27Manylinux2014",
+			pythonTag:   "cp27",
+			abiTag:      "cp27mu",
+			platformTag: "manylinux2014_x86_64",
+			uploaded:    time.Date(2026, time.May, 1, 0, 0, 0, 0, time.UTC),
+			want:        "",
+		},
+		{
+			name:        "Python35BeforePin",
+			pythonTag:   "cp35",
+			abiTag:      "cp35m",
+			platformTag: "manylinux2010_x86_64",
+			uploaded:    time.Date(2020, time.May, 1, 0, 0, 0, 0, time.UTC),
+			want:        platform.ImageManylinux2010Python27X86_64,
+		},
+		{
+			// manylinux2014 images still shipped cp35, so the pin table
+			// decides. No release before 2.0.0 pins a manylinux2014 image
+			// with a known digest.
+			name:        "Python35Manylinux2014",
+			pythonTag:   "cp35",
+			abiTag:      "cp35m",
+			platformTag: "manylinux2014_x86_64",
+			uploaded:    time.Date(2026, time.May, 1, 0, 0, 0, 0, time.UTC),
+			want:        "",
+		},
+		{
+			name:        "Manylinux2010",
+			pythonTag:   "cp37",
+			abiTag:      "cp37m",
+			platformTag: "manylinux2010_x86_64",
+			uploaded:    time.Date(2026, time.May, 1, 0, 0, 0, 0, time.UTC),
+			want:        "quay.io/pypa/manylinux2010_x86_64:2022-08-05-4535177@" + testDigest("8"),
+		},
+		{
+			name:        "Manylinux2010Era",
+			pythonTag:   "cp37",
+			abiTag:      "cp37m",
+			platformTag: "manylinux2010_x86_64",
+			uploaded:    time.Date(2021, time.August, 1, 0, 0, 0, 0, time.UTC),
+			want:        "quay.io/pypa/manylinux2010_x86_64:2021-02-06-3d322a5@" + testDigest("9"),
+		},
+		{
+			name:        "Manylinux2010ConfigVersion",
+			pythonTag:   "cp37",
+			abiTag:      "cp37m",
+			platformTag: "manylinux2010_x86_64",
+			cibwVersion: "1.12.0",
+			uploaded:    time.Date(2026, time.May, 1, 0, 0, 0, 0, time.UTC),
+			want:        "quay.io/pypa/manylinux2010_x86_64:2021-02-06-3d322a5@" + testDigest("9"),
+		},
+		{
+			name:        "Manylinux2010BeforePin",
+			pythonTag:   "cp37",
+			abiTag:      "cp37m",
+			platformTag: "manylinux2010_x86_64",
+			uploaded:    time.Date(2020, time.May, 1, 0, 0, 0, 0, time.UTC),
+			want:        platform.ImageManylinux2010FinalX86_64,
+		},
+		{
+			name:        "Manylinux2010CompressedTagSet",
+			pythonTag:   "cp39",
+			abiTag:      "cp39",
+			platformTag: "manylinux1_x86_64.manylinux_2_12_x86_64",
+			uploaded:    time.Date(2026, time.May, 1, 0, 0, 0, 0, time.UTC),
+			want:        "quay.io/pypa/manylinux2010_x86_64:2022-08-05-4535177@" + testDigest("8"),
+		},
+		{
+			name:        "Manylinux2010Abi3",
+			pythonTag:   "cp37",
+			abiTag:      "abi3",
+			platformTag: "manylinux2010_x86_64",
+			uploaded:    time.Date(2026, time.May, 1, 0, 0, 0, 0, time.UTC),
+			want:        "quay.io/pypa/manylinux2010_x86_64:2022-08-05-4535177@" + testDigest("8"),
+		},
+		{
+			// No manylinux2010 image ships cp311, so the wheel keeps the
+			// manylinux2014 image.
+			name:        "Manylinux2010WithoutInterpreter",
+			pythonTag:   "cp311",
+			abiTag:      "cp311",
+			platformTag: "manylinux2010_x86_64",
+			uploaded:    time.Date(2026, time.May, 1, 0, 0, 0, 0, time.UTC),
+			want:        "quay.io/pypa/manylinux2014_x86_64:2026.03.01-1@" + testDigest("d"),
+		},
+		{
+			// manylinux1 wheels other than cp27 keep the manylinux2014 image.
+			name:        "Manylinux1",
+			pythonTag:   "cp37",
+			abiTag:      "cp37m",
+			platformTag: "manylinux1_x86_64",
+			uploaded:    time.Date(2026, time.May, 1, 0, 0, 0, 0, time.UTC),
+			want:        "quay.io/pypa/manylinux2014_x86_64:2026.02.20-1@" + testDigest("1"),
+		},
+		{
+			name:        "Manylinux2014",
+			pythonTag:   "cp37",
+			abiTag:      "cp37m",
+			platformTag: "manylinux2010_x86_64.manylinux2014_x86_64",
+			uploaded:    time.Date(2026, time.May, 1, 0, 0, 0, 0, time.UTC),
+			want:        "quay.io/pypa/manylinux2014_x86_64:2026.02.20-1@" + testDigest("1"),
 		},
 	}
 	for _, tt := range tests {

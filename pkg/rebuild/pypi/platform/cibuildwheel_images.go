@@ -20,6 +20,7 @@ var CibuildwheelPins = CibuildwheelPinTable{
 		Published: time.Date(2020, time.May, 2, 16, 57, 44, 0, time.UTC),
 		Commit:    "783dedad22fbb0483f2944ecf17af749581d94f6",
 		Images: map[string]PinnedImage{
+			ImageManylinux2010X86_64: {Tag: "2020-04-29-0e1afc5"},
 			ImageManylinux2014X86_64: {Tag: "2020-05-01-b37d76b"},
 		},
 	},
@@ -28,6 +29,7 @@ var CibuildwheelPins = CibuildwheelPinTable{
 		Published: time.Date(2020, time.May, 4, 16, 12, 24, 0, time.UTC),
 		Commit:    "9ea7fa7628b87461d0b36fac2a5271978ba28f32",
 		Images: map[string]PinnedImage{
+			ImageManylinux2010X86_64: {Tag: "2020-04-29-0e1afc5"},
 			ImageManylinux2014X86_64: {Tag: "2020-05-01-b37d76b"},
 		},
 	},
@@ -36,6 +38,7 @@ var CibuildwheelPins = CibuildwheelPinTable{
 		Published: time.Date(2020, time.May, 25, 15, 17, 19, 0, time.UTC),
 		Commit:    "ecbdc2e3d37e726e4cd0d0fd5ca1c3d53ebcedaf",
 		Images: map[string]PinnedImage{
+			ImageManylinux2010X86_64: {Tag: "2020-05-20-c7bbd11"},
 			ImageManylinux2014X86_64: {Tag: "2020-05-17-2f8ac3b"},
 		},
 	},
@@ -44,6 +47,7 @@ var CibuildwheelPins = CibuildwheelPinTable{
 		Published: time.Date(2020, time.June, 24, 9, 15, 43, 0, time.UTC),
 		Commit:    "41891277d33c728059fb89ac2ce0c2b32d6d459b",
 		Images: map[string]PinnedImage{
+			ImageManylinux2010X86_64: {Tag: "2020-05-20-c7bbd11"},
 			ImageManylinux2014X86_64: {Tag: "2020-05-17-2f8ac3b"},
 		},
 	},
@@ -52,6 +56,7 @@ var CibuildwheelPins = CibuildwheelPinTable{
 		Published: time.Date(2020, time.June, 25, 9, 54, 16, 0, time.UTC),
 		Commit:    "321335e756422765cffb0c9ab2caad14b1fd9f31",
 		Images: map[string]PinnedImage{
+			ImageManylinux2010X86_64: {Tag: "2020-05-20-c7bbd11"},
 			ImageManylinux2014X86_64: {Tag: "2020-05-17-2f8ac3b"},
 		},
 	},
@@ -60,6 +65,7 @@ var CibuildwheelPins = CibuildwheelPinTable{
 		Published: time.Date(2020, time.July, 8, 22, 0, 23, 0, time.UTC),
 		Commit:    "8ddc6d57a25c959308d27e48be69f1f84187c8bf",
 		Images: map[string]PinnedImage{
+			ImageManylinux2010X86_64: {Tag: "2020-05-20-c7bbd11"},
 			ImageManylinux2014X86_64: {Tag: "2020-05-17-2f8ac3b"},
 		},
 	},
@@ -68,6 +74,7 @@ var CibuildwheelPins = CibuildwheelPinTable{
 		Published: time.Date(2020, time.July, 19, 11, 0, 43, 0, time.UTC),
 		Commit:    "c884530a1da933814eaaaa9fa2db605e8ecaf116",
 		Images: map[string]PinnedImage{
+			ImageManylinux2010X86_64: {Tag: "2020-05-20-c7bbd11"},
 			ImageManylinux2014X86_64: {Tag: "2020-05-17-2f8ac3b"},
 		},
 	},
@@ -76,6 +83,7 @@ var CibuildwheelPins = CibuildwheelPinTable{
 		Published: time.Date(2020, time.July, 19, 21, 41, 17, 0, time.UTC),
 		Commit:    "c0cb43800b6740677e373889705b61b17b879a8d",
 		Images: map[string]PinnedImage{
+			ImageManylinux2010X86_64: {Tag: "2020-05-20-c7bbd11"},
 			ImageManylinux2014X86_64: {Tag: "2020-05-17-2f8ac3b"},
 		},
 	},
@@ -84,6 +92,7 @@ var CibuildwheelPins = CibuildwheelPinTable{
 		Published: time.Date(2020, time.July, 22, 17, 58, 22, 0, time.UTC),
 		Commit:    "5c4767899dc4418b509a2d7ccfde07d33ab29e28",
 		Images: map[string]PinnedImage{
+			ImageManylinux2010X86_64: {Tag: "2020-05-20-c7bbd11"},
 			ImageManylinux2014X86_64: {Tag: "2020-05-17-2f8ac3b"},
 		},
 	},
@@ -92,6 +101,7 @@ var CibuildwheelPins = CibuildwheelPinTable{
 		Published: time.Date(2020, time.September, 9, 7, 58, 32, 0, time.UTC),
 		Commit:    "200d4af89cba757ef16a30c5413954c4e5d23e87",
 		Images: map[string]PinnedImage{
+			ImageManylinux2010X86_64: {Tag: "2020-08-20-df89e22"},
 			ImageManylinux2014X86_64: {Tag: "2020-08-29-f97fd86"},
 		},
 	},
@@ -100,6 +110,7 @@ var CibuildwheelPins = CibuildwheelPinTable{
 		Published: time.Date(2020, time.September, 20, 16, 37, 10, 0, time.UTC),
 		Commit:    "aacd0fe33c9aba4075395719be2e3fc36d761e8e",
 		Images: map[string]PinnedImage{
+			ImageManylinux2010X86_64: {Tag: "2020-09-20-6131e60"},
 			ImageManylinux2014X86_64: {Tag: "2020-09-20-fb9af88"},
 		},
 	},
@@ -108,6 +119,7 @@ var CibuildwheelPins = CibuildwheelPinTable{
 		Published: time.Date(2020, time.October, 9, 12, 23, 45, 0, time.UTC),
 		Commit:    "97dd4ee1c06f3cf271a26c61a59305f7598a0fef",
 		Images: map[string]PinnedImage{
+			ImageManylinux2010X86_64: {Tag: "2020-10-06-786a931"},
 			ImageManylinux2014X86_64: {Tag: "2020-10-06-b2ca7a1"},
 		},
 	},
@@ -116,6 +128,7 @@ var CibuildwheelPins = CibuildwheelPinTable{
 		Published: time.Date(2020, time.October, 12, 20, 6, 23, 0, time.UTC),
 		Commit:    "1e164977767dcd3f532555fb7c30f0d1197a1295",
 		Images: map[string]PinnedImage{
+			ImageManylinux2010X86_64: {Tag: "2020-10-06-786a931"},
 			ImageManylinux2014X86_64: {Tag: "2020-10-06-b2ca7a1"},
 		},
 	},
@@ -124,6 +137,7 @@ var CibuildwheelPins = CibuildwheelPinTable{
 		Published: time.Date(2020, time.October, 31, 15, 57, 47, 0, time.UTC),
 		Commit:    "d12e54af41a003ae4b4d148271328e6545ba0d52",
 		Images: map[string]PinnedImage{
+			ImageManylinux2010X86_64: {Tag: "2020-10-06-786a931"},
 			ImageManylinux2014X86_64: {Tag: "2020-10-06-b2ca7a1"},
 		},
 	},
@@ -132,6 +146,7 @@ var CibuildwheelPins = CibuildwheelPinTable{
 		Published: time.Date(2020, time.November, 27, 10, 17, 3, 0, time.UTC),
 		Commit:    "0fb2ead6fb5757076862910d05dfd882c9ba0272",
 		Images: map[string]PinnedImage{
+			ImageManylinux2010X86_64: {Tag: "2020-11-11-201fb79"},
 			ImageManylinux2014X86_64: {Tag: "2020-11-11-bc8ce45"},
 		},
 	},
@@ -140,6 +155,7 @@ var CibuildwheelPins = CibuildwheelPinTable{
 		Published: time.Date(2020, time.December, 3, 18, 2, 53, 0, time.UTC),
 		Commit:    "49077c2a36f35d23183f49126c6c0652ea87f206",
 		Images: map[string]PinnedImage{
+			ImageManylinux2010X86_64: {Tag: "2020-12-03-912b0de"},
 			ImageManylinux2014X86_64: {Tag: "2020-11-11-bc8ce45"},
 		},
 	},
@@ -148,6 +164,7 @@ var CibuildwheelPins = CibuildwheelPinTable{
 		Published: time.Date(2020, time.December, 21, 13, 21, 16, 0, time.UTC),
 		Commit:    "ed8a9533c5b5b95b9e5f9a3ee53bfce9915459b4",
 		Images: map[string]PinnedImage{
+			ImageManylinux2010X86_64: {Tag: "2020-12-19-8df9e2d"},
 			ImageManylinux2014X86_64: {Tag: "2020-12-18-cb453dc"},
 		},
 	},
@@ -156,6 +173,7 @@ var CibuildwheelPins = CibuildwheelPinTable{
 		Published: time.Date(2021, time.January, 1, 13, 22, 45, 0, time.UTC),
 		Commit:    "eed12cf4c95141edd8bdad300469e985c10c95ef",
 		Images: map[string]PinnedImage{
+			ImageManylinux2010X86_64: {Tag: "2020-12-30-3161d69"},
 			ImageManylinux2014X86_64: {Tag: "2020-12-30-68d3257"},
 		},
 	},
@@ -164,6 +182,7 @@ var CibuildwheelPins = CibuildwheelPinTable{
 		Published: time.Date(2021, time.January, 2, 11, 47, 35, 0, time.UTC),
 		Commit:    "4be9285fc79b4c802d8e5f1b8ab01039ba8f0b9b",
 		Images: map[string]PinnedImage{
+			ImageManylinux2010X86_64: {Tag: "2020-12-30-3161d69"},
 			ImageManylinux2014X86_64: {Tag: "2020-12-30-68d3257"},
 		},
 	},
@@ -172,6 +191,7 @@ var CibuildwheelPins = CibuildwheelPinTable{
 		Published: time.Date(2021, time.January, 22, 19, 19, 25, 0, time.UTC),
 		Commit:    "96e396497229b5ce259d36428111fff2136f69c5",
 		Images: map[string]PinnedImage{
+			ImageManylinux2010X86_64: {Tag: "2021-01-12-ff3830d"},
 			ImageManylinux2014X86_64: {Tag: "2021-01-12-c8250d8"},
 		},
 	},
@@ -180,6 +200,7 @@ var CibuildwheelPins = CibuildwheelPinTable{
 		Published: time.Date(2021, time.February, 5, 21, 45, 57, 0, time.UTC),
 		Commit:    "5514dd28f0e6ab8f584981a98ff86c60b77466ed",
 		Images: map[string]PinnedImage{
+			ImageManylinux2010X86_64: {Tag: "2021-01-24-4117e7c"},
 			ImageManylinux2014X86_64: {Tag: "2021-01-24-91ce2b8"},
 		},
 	},
@@ -188,6 +209,7 @@ var CibuildwheelPins = CibuildwheelPinTable{
 		Published: time.Date(2021, time.February, 23, 21, 9, 42, 0, time.UTC),
 		Commit:    "84f82a5898d7b7a561b94f22d6a0227e8ad0c946",
 		Images: map[string]PinnedImage{
+			ImageManylinux2010X86_64: {Tag: "2021-02-06-3d322a5", Digest: "sha256:06ad27237d6dcd3f7a5fdfda1f998abc5557e7dc790985a7f3d439f969718a8e"},
 			ImageManylinux2014X86_64: {Tag: "2021-02-20-2c345f8"},
 		},
 	},
@@ -196,6 +218,7 @@ var CibuildwheelPins = CibuildwheelPinTable{
 		Published: time.Date(2021, time.May, 1, 17, 24, 18, 0, time.UTC),
 		Commit:    "2c7c2c8fc7d64182d4ce0bb2dfa81121f741404a",
 		Images: map[string]PinnedImage{
+			ImageManylinux2010X86_64: {Tag: "2021-02-06-3d322a5", Digest: "sha256:06ad27237d6dcd3f7a5fdfda1f998abc5557e7dc790985a7f3d439f969718a8e"},
 			ImageManylinux2014X86_64: {Tag: "2021-04-05-b4fd19d"},
 		},
 	},
@@ -204,6 +227,7 @@ var CibuildwheelPins = CibuildwheelPinTable{
 		Published: time.Date(2021, time.May, 1, 17, 25, 9, 0, time.UTC),
 		Commit:    "aa12480ff0e5381eca2258a6957aea6af5c46172",
 		Images: map[string]PinnedImage{
+			ImageManylinux2010X86_64: {Tag: "2021-02-06-3d322a5", Digest: "sha256:06ad27237d6dcd3f7a5fdfda1f998abc5557e7dc790985a7f3d439f969718a8e"},
 			ImageManylinux2014X86_64: {Tag: "2021-04-05-b4fd19d"},
 		},
 	},
@@ -212,6 +236,7 @@ var CibuildwheelPins = CibuildwheelPinTable{
 		Published: time.Date(2021, time.May, 28, 14, 51, 30, 0, time.UTC),
 		Commit:    "5ea360607df3d271239b364257eb636411d6a8e8",
 		Images: map[string]PinnedImage{
+			ImageManylinux2010X86_64: {Tag: "2021-02-06-3d322a5", Digest: "sha256:06ad27237d6dcd3f7a5fdfda1f998abc5557e7dc790985a7f3d439f969718a8e"},
 			ImageManylinux2014X86_64: {Tag: "2021-05-01-28d233a", Digest: "sha256:d9a2ceb5542a1fd7f28153307fc9a5304c85e0f2b6c7da5e6a3abe74bd5652f1"},
 		},
 	},
@@ -220,6 +245,7 @@ var CibuildwheelPins = CibuildwheelPinTable{
 		Published: time.Date(2021, time.June, 22, 17, 14, 26, 0, time.UTC),
 		Commit:    "bf3a5590c9aeb9a7e4ff4025ef7400e0c6ad1248",
 		Images: map[string]PinnedImage{
+			ImageManylinux2010X86_64: {Tag: "2021-02-06-3d322a5", Digest: "sha256:06ad27237d6dcd3f7a5fdfda1f998abc5557e7dc790985a7f3d439f969718a8e"},
 			ImageManylinux2014X86_64: {Tag: "2021-05-01-28d233a", Digest: "sha256:d9a2ceb5542a1fd7f28153307fc9a5304c85e0f2b6c7da5e6a3abe74bd5652f1"},
 		},
 	},
@@ -228,6 +254,7 @@ var CibuildwheelPins = CibuildwheelPinTable{
 		Published: time.Date(2021, time.July, 16, 11, 7, 8, 0, time.UTC),
 		Commit:    "d8c7cb2ceaf1ccef4a4beed7e364ffbb90e8ea0b",
 		Images: map[string]PinnedImage{
+			ImageManylinux2010X86_64: {Tag: "2021-07-14-67a6e11"},
 			ImageManylinux2014X86_64: {Tag: "2021-07-14-67a6e11"},
 		},
 	},
@@ -236,6 +263,7 @@ var CibuildwheelPins = CibuildwheelPinTable{
 		Published: time.Date(2021, time.July, 25, 13, 40, 43, 0, time.UTC),
 		Commit:    "2de5bf4b900759cd6befc4cd95e2493aef781c51",
 		Images: map[string]PinnedImage{
+			ImageManylinux2010X86_64: {Tag: "2021-07-25-cfe8a6c"},
 			ImageManylinux2014X86_64: {Tag: "2021-07-25-cfe8a6c"},
 		},
 	},
@@ -244,6 +272,7 @@ var CibuildwheelPins = CibuildwheelPinTable{
 		Published: time.Date(2021, time.August, 7, 19, 7, 21, 0, time.UTC),
 		Commit:    "c713c6053dc990e6266d744fa784a2ae5cd001c3",
 		Images: map[string]PinnedImage{
+			ImageManylinux2010X86_64: {Tag: "2021-08-03-e7edb37", Digest: "sha256:c83dbe9ada84bd438cb03c632e0f26e91b2a535039248879e2c67fd14ac75dd5"},
 			ImageManylinux2014X86_64: {Tag: "2021-08-03-e7edb37", Digest: "sha256:df5939d043217d4076d4703726b710c14f112ba3cbdd6c5aed9d56e1679f67c9"},
 		},
 	},
@@ -252,6 +281,7 @@ var CibuildwheelPins = CibuildwheelPinTable{
 		Published: time.Date(2021, time.September, 14, 8, 14, 34, 0, time.UTC),
 		Commit:    "de80b4af9534380b30ae9f4d801720e7c4ebd5ca",
 		Images: map[string]PinnedImage{
+			ImageManylinux2010X86_64: {Tag: "2021-09-12-b124c44", Digest: "sha256:83c29de0ec6f6735998f8a3e87b72628430a3806621748f068ac0abac27b4f58"},
 			ImageManylinux2014X86_64: {Tag: "2021-09-12-b124c44", Digest: "sha256:73d0fe86eb8345956568f8bfbf2d530dd6feee1ee262035826d395b5b1a009d0"},
 		},
 	},
@@ -260,6 +290,7 @@ var CibuildwheelPins = CibuildwheelPinTable{
 		Published: time.Date(2021, time.October, 6, 20, 22, 27, 0, time.UTC),
 		Commit:    "e8db6ff3e09e106e5777c2eed1e91521064551d3",
 		Images: map[string]PinnedImage{
+			ImageManylinux2010X86_64: {Tag: "2021-10-06-94da8f1", Digest: "sha256:77f622064a0f9a93fe06d2865dceac0b3683a0ba551fe715158c74263224f55a"},
 			ImageManylinux2014X86_64: {Tag: "2021-10-06-94da8f1", Digest: "sha256:e1e4b08928f24f870adcf6c942498a46c25bcb1dcff8eafd934072806fd1c210"},
 			ImageMusllinux1_1X86_64:  {Tag: "2021-10-06-94da8f1", Digest: "sha256:854969eb271fb04eb37661f92a0eb4261dd7c81aa2998772708e3cd6e1011b72"},
 		},
@@ -269,6 +300,7 @@ var CibuildwheelPins = CibuildwheelPinTable{
 		Published: time.Date(2021, time.October, 26, 14, 26, 4, 0, time.UTC),
 		Commit:    "298a8baef7c63393389fd742098e56b62a5e418d",
 		Images: map[string]PinnedImage{
+			ImageManylinux2010X86_64: {Tag: "2021-10-10-790306f", Digest: "sha256:f9bfa82d1a5e4f2e34392948faef5a917e3bae6f17c01ff03e36da68757fa315"},
 			ImageManylinux2014X86_64: {Tag: "2021-10-10-790306f", Digest: "sha256:4c4414678c423c65eb3df8d8ae73af2650e2cacfb78df9b270db8a0358a32b4f"},
 			ImageMusllinux1_1X86_64:  {Tag: "2021-10-10-790306f", Digest: "sha256:b1ae3a082c9a4f689e29551e7a3f43e3cab848ef7e64bb682db84241a1dac4d6"},
 		},
@@ -278,6 +310,7 @@ var CibuildwheelPins = CibuildwheelPinTable{
 		Published: time.Date(2021, time.October, 26, 18, 23, 26, 0, time.UTC),
 		Commit:    "578098a3f80e6a44fa0e4e3cfc67679c2d1be7f3",
 		Images: map[string]PinnedImage{
+			ImageManylinux2010X86_64: {Tag: "2021-10-10-790306f", Digest: "sha256:f9bfa82d1a5e4f2e34392948faef5a917e3bae6f17c01ff03e36da68757fa315"},
 			ImageManylinux2014X86_64: {Tag: "2021-10-10-790306f", Digest: "sha256:4c4414678c423c65eb3df8d8ae73af2650e2cacfb78df9b270db8a0358a32b4f"},
 			ImageMusllinux1_1X86_64:  {Tag: "2021-10-10-790306f", Digest: "sha256:b1ae3a082c9a4f689e29551e7a3f43e3cab848ef7e64bb682db84241a1dac4d6"},
 		},
@@ -287,6 +320,7 @@ var CibuildwheelPins = CibuildwheelPinTable{
 		Published: time.Date(2021, time.October, 26, 19, 38, 37, 0, time.UTC),
 		Commit:    "2f4987fab99238c9bf61e78b06a887ea80134626",
 		Images: map[string]PinnedImage{
+			ImageManylinux2010X86_64: {Tag: "2021-10-10-790306f", Digest: "sha256:f9bfa82d1a5e4f2e34392948faef5a917e3bae6f17c01ff03e36da68757fa315"},
 			ImageManylinux2014X86_64: {Tag: "2021-10-10-790306f", Digest: "sha256:4c4414678c423c65eb3df8d8ae73af2650e2cacfb78df9b270db8a0358a32b4f"},
 			ImageMusllinux1_1X86_64:  {Tag: "2021-10-10-790306f", Digest: "sha256:b1ae3a082c9a4f689e29551e7a3f43e3cab848ef7e64bb682db84241a1dac4d6"},
 		},
@@ -296,6 +330,7 @@ var CibuildwheelPins = CibuildwheelPinTable{
 		Published: time.Date(2021, time.November, 26, 18, 49, 43, 0, time.UTC),
 		Commit:    "f717468ff60fbd2ee76b6327596d078ad0ec13d5",
 		Images: map[string]PinnedImage{
+			ImageManylinux2010X86_64: {Tag: "2021-11-20-f410d11", Digest: "sha256:622b8042034ebf1a2c90c25e1c54371dc1175bcfbf2118859bd9b501539f24a7"},
 			ImageManylinux2014X86_64: {Tag: "2021-11-20-f410d11", Digest: "sha256:9a0b5c9654cc24b29084ed98801113199ecb7e7c59713d5ff3d819534548b5a5"},
 			ImageMusllinux1_1X86_64:  {Tag: "2021-11-20-f410d11", Digest: "sha256:a63cdac39aa2d877ab5d5588eece168967b026b6970f25428a8e1a1b80b5b7fa"},
 		},
@@ -305,6 +340,7 @@ var CibuildwheelPins = CibuildwheelPinTable{
 		Published: time.Date(2021, time.December, 14, 19, 0, 30, 0, time.UTC),
 		Commit:    "461bed51d3619c4c670f008148de8ce1465ba586",
 		Images: map[string]PinnedImage{
+			ImageManylinux2010X86_64: {Tag: "2021-12-12-e5100b5", Digest: "sha256:516745f854f23d2da8be7607c49a05e194d022a3bd9621f9bd66e42006736083"},
 			ImageManylinux2014X86_64: {Tag: "2021-12-12-e5100b5", Digest: "sha256:17de698632b5255a4e3c26bf2cbd4a1c2d46662130503bf9660531517621651e"},
 			ImageMusllinux1_1X86_64:  {Tag: "2021-12-12-e5100b5", Digest: "sha256:0ce6cd0d4cfe73916419b8712fdda065a3a9d7e96b356daffa9d6981e677c11d"},
 		},
@@ -314,6 +350,7 @@ var CibuildwheelPins = CibuildwheelPinTable{
 		Published: time.Date(2022, time.April, 2, 13, 56, 41, 0, time.UTC),
 		Commit:    "1a5fec7075255d974a4adf330e507dbe4bce6cb7",
 		Images: map[string]PinnedImage{
+			ImageManylinux2010X86_64: {Tag: "2022-03-31-361e6b6", Digest: "sha256:ff1d7ee3437e849f56f855346dc49b51b685d8d44731da345572c9d97f3b82e9"},
 			ImageManylinux2014X86_64: {Tag: "2022-03-31-361e6b6", Digest: "sha256:1353b03a914b130596219199eeb80a6213dca4bdc993102945f23438adc5a882"},
 			ImageMusllinux1_1X86_64:  {Tag: "2022-03-31-361e6b6", Digest: "sha256:a9a51587b3e7a2d28954860a6406ff1f666e27396ad1d115a5793ea24a222ab0"},
 		},
@@ -323,6 +360,7 @@ var CibuildwheelPins = CibuildwheelPinTable{
 		Published: time.Date(2022, time.April, 29, 13, 55, 25, 0, time.UTC),
 		Commit:    "0b6307072a15a35debbb73215c012cf29c672908",
 		Images: map[string]PinnedImage{
+			ImageManylinux2010X86_64: {Tag: "2022-04-03-da6ecb3", Digest: "sha256:08f02813a03dbfee945869726c708ac6a35af47fd9cd8016526215bc8dc63b5f"},
 			ImageManylinux2014X86_64: {Tag: "2022-04-03-da6ecb3", Digest: "sha256:9b463efac479efbcab6dec77eca28c5cfa0c5ef64f13ac184eb7117dc1f8edda"},
 			ImageMusllinux1_1X86_64:  {Tag: "2022-04-03-da6ecb3", Digest: "sha256:b4df4187c89d14ceccf5757132e2548d7963cd39476005e5b6b414a2b9583175"},
 		},
@@ -332,6 +370,7 @@ var CibuildwheelPins = CibuildwheelPinTable{
 		Published: time.Date(2022, time.May, 25, 17, 46, 19, 0, time.UTC),
 		Commit:    "4bbbee7949a4878926f3adeb32de3f60d63523b4",
 		Images: map[string]PinnedImage{
+			ImageManylinux2010X86_64: {Tag: "2022-05-22-fbe07ea", Digest: "sha256:6d9bce326bef6d9d682970b25f760a831b1be1a5b664db7d89d1104a1bc47066"},
 			ImageManylinux2014X86_64: {Tag: "2022-05-22-fbe07ea", Digest: "sha256:285314ad4a2fdc0f2cef58f90d8910628c3e0eeb5d1320c49c2e59bf40aa6df7"},
 			ImageMusllinux1_1X86_64:  {Tag: "2022-05-22-fbe07ea", Digest: "sha256:5120c468fd2abee7ff03fa3743fa583ea2723236c8b98c6351c05c9d6ade1def"},
 		},
@@ -341,6 +380,7 @@ var CibuildwheelPins = CibuildwheelPinTable{
 		Published: time.Date(2022, time.June, 7, 8, 17, 47, 0, time.UTC),
 		Commit:    "aa753429b2fdc380e9665c4f031c7d9998718d7c",
 		Images: map[string]PinnedImage{
+			ImageManylinux2010X86_64: {Tag: "2022-06-05-61145a4", Digest: "sha256:eb4bb4348150fc75bddc499920b54a0a65bed97394cda6ca23d0b505464c5a9d"},
 			ImageManylinux2014X86_64: {Tag: "2022-06-05-61145a4", Digest: "sha256:1a9dfe7d989fc828f2921b0b8c21673d5eac6e4f9ade8ca9b93939bcbb9b8b4c"},
 			ImageMusllinux1_1X86_64:  {Tag: "2022-06-05-61145a4", Digest: "sha256:e7d218fdde354b88f5d12053b55af7c76eca70d5e7e04b68d4e3382ae1a45f8d"},
 		},
@@ -350,6 +390,7 @@ var CibuildwheelPins = CibuildwheelPinTable{
 		Published: time.Date(2022, time.June, 17, 18, 42, 37, 0, time.UTC),
 		Commit:    "cc56a140d2e514e2a46bdf6640b035917ee53b77",
 		Images: map[string]PinnedImage{
+			ImageManylinux2010X86_64: {Tag: "2022-06-13-c365205", Digest: "sha256:55f2225aff925f86f94b4de323a273746b65498a8c726f3791f9d2c0f2861133"},
 			ImageManylinux2014X86_64: {Tag: "2022-06-13-c365205", Digest: "sha256:c46615370b42a79a448fa20fc4697400d12fd2418a85a7071a3fed1a264e512e"},
 			ImageManylinux2_28X86_64: {Tag: "2022-06-13-c365205", Digest: "sha256:f31a199b3945bcddb5fe2db7ae4a24c169fa479581cfbb568eab113790b3ef1b"},
 			ImageMusllinux1_1X86_64:  {Tag: "2022-06-13-c365205", Digest: "sha256:59cffe3a5c38f08aba4ea5a9cc646a4795bd630f23ce243593c370d0f57f693b"},
@@ -360,6 +401,7 @@ var CibuildwheelPins = CibuildwheelPinTable{
 		Published: time.Date(2022, time.July, 5, 17, 36, 47, 0, time.UTC),
 		Commit:    "5ef488ba307a34c0e4bf4e55384ff8dbe470226a",
 		Images: map[string]PinnedImage{
+			ImageManylinux2010X86_64: {Tag: "2022-06-26-9a2ca4b", Digest: "sha256:61f8c09ff131272adf31a33796ee216016c0148481a5d26e55d6c6a8101cc47c"},
 			ImageManylinux2014X86_64: {Tag: "2022-06-26-9a2ca4b", Digest: "sha256:9df40ad692387e3165097d2fe7b48b65fec450eb104ea48b22e4dfd9de4fb38c"},
 			ImageManylinux2_28X86_64: {Tag: "2022-06-26-9a2ca4b", Digest: "sha256:c8bad257ee3f7783d2387c8297f6d99d5786417af18af0a7c1720230b3c42337"},
 			ImageMusllinux1_1X86_64:  {Tag: "2022-06-26-9a2ca4b", Digest: "sha256:76f0c67af574fe623215caa4d9882c11889f2257f179abf08421485574af3cc3"},
@@ -370,6 +412,7 @@ var CibuildwheelPins = CibuildwheelPinTable{
 		Published: time.Date(2022, time.July, 18, 20, 44, 2, 0, time.UTC),
 		Commit:    "afb4329fe32181c15d34ef94bf64dad7715b44ba",
 		Images: map[string]PinnedImage{
+			ImageManylinux2010X86_64: {Tag: "2022-07-17-51324db", Digest: "sha256:958598a556f08acf3a8657e024d9940eb635b467b36ce578d5fd2510aabb0ea7"},
 			ImageManylinux2014X86_64: {Tag: "2022-07-17-51324db", Digest: "sha256:2e799b2b20d156e2bc4e3a5c66ef473c176b04f798276b27c8e8f136fe2af0e1"},
 			ImageManylinux2_28X86_64: {Tag: "2022-07-17-51324db", Digest: "sha256:aa9571a3b557908e388c94b310c79630d9de18a982df6c30ab99b7c41f6d1dc3"},
 			ImageMusllinux1_1X86_64:  {Tag: "2022-07-17-51324db", Digest: "sha256:1f0e4647459a11c68444e39c0ae3338d2cd23f7f799ba0b9edd149a9fe53c317"},
@@ -380,6 +423,7 @@ var CibuildwheelPins = CibuildwheelPinTable{
 		Published: time.Date(2022, time.August, 11, 18, 45, 31, 0, time.UTC),
 		Commit:    "0abd6c205d5baf3066155b5bf85219147d770c61",
 		Images: map[string]PinnedImage{
+			ImageManylinux2010X86_64: {Tag: "2022-08-05-4535177", Digest: "sha256:3b5eb5ab9bc73b93740ae4eda9962078951cd3bb7efe837b770360e78c7366fb"},
 			ImageManylinux2014X86_64: {Tag: "2022-08-09-51a01be", Digest: "sha256:d195b4906bd74dcc9db60e8ffa594dd37f5eb7e9ce41dc1683cf9458a22ddf2e"},
 			ImageManylinux2_28X86_64: {Tag: "2022-08-09-51a01be", Digest: "sha256:b0f1ba5d1a10a5ba16ba47dd46bfa87e854dde9e7b6e3b7fdca74ad033495696"},
 			ImageMusllinux1_1X86_64:  {Tag: "2022-08-09-51a01be", Digest: "sha256:d6ce0a1e31aa9e26b4947eb09565c3cdb1ff162e9f999fb21d4c078134e2094c"},
@@ -390,6 +434,7 @@ var CibuildwheelPins = CibuildwheelPinTable{
 		Published: time.Date(2022, time.September, 13, 9, 28, 55, 0, time.UTC),
 		Commit:    "67a7175578d31df091005d66d55bd8daa4e18665",
 		Images: map[string]PinnedImage{
+			ImageManylinux2010X86_64: {Tag: "2022-08-05-4535177", Digest: "sha256:3b5eb5ab9bc73b93740ae4eda9962078951cd3bb7efe837b770360e78c7366fb"},
 			ImageManylinux2014X86_64: {Tag: "2022-09-12-1a61614", Digest: "sha256:0e69b9fd9aaf48fc9be08c8765351d1ef1888917c68a3f777747fc7c62623bd5"},
 			ImageManylinux2_28X86_64: {Tag: "2022-09-12-1a61614", Digest: "sha256:c466aef9f0a5f7d00703d53094da995871b17852ced51649b0268470fa70e843"},
 			ImageMusllinux1_1X86_64:  {Tag: "2022-09-12-1a61614", Digest: "sha256:8a45333bed8f1a12d2056de9a3d17b910737df30bd6f7a1ae4ffb7c19177894c"},
@@ -400,6 +445,7 @@ var CibuildwheelPins = CibuildwheelPinTable{
 		Published: time.Date(2022, time.September, 18, 11, 59, 0, 0, time.UTC),
 		Commit:    "225387a9d55a3df0ca48efc17acf4964b8ef4f10",
 		Images: map[string]PinnedImage{
+			ImageManylinux2010X86_64: {Tag: "2022-08-05-4535177", Digest: "sha256:3b5eb5ab9bc73b93740ae4eda9962078951cd3bb7efe837b770360e78c7366fb"},
 			ImageManylinux2014X86_64: {Tag: "2022-09-12-1a61614", Digest: "sha256:0e69b9fd9aaf48fc9be08c8765351d1ef1888917c68a3f777747fc7c62623bd5"},
 			ImageManylinux2_28X86_64: {Tag: "2022-09-12-1a61614", Digest: "sha256:c466aef9f0a5f7d00703d53094da995871b17852ced51649b0268470fa70e843"},
 			ImageMusllinux1_1X86_64:  {Tag: "2022-09-12-1a61614", Digest: "sha256:8a45333bed8f1a12d2056de9a3d17b910737df30bd6f7a1ae4ffb7c19177894c"},
@@ -410,6 +456,7 @@ var CibuildwheelPins = CibuildwheelPinTable{
 		Published: time.Date(2022, time.September, 25, 8, 50, 2, 0, time.UTC),
 		Commit:    "7c45799919d2dcd7ac59433924d763dd24d97483",
 		Images: map[string]PinnedImage{
+			ImageManylinux2010X86_64: {Tag: "2022-08-05-4535177", Digest: "sha256:3b5eb5ab9bc73b93740ae4eda9962078951cd3bb7efe837b770360e78c7366fb"},
 			ImageManylinux2014X86_64: {Tag: "2022-09-18-2b8b451", Digest: "sha256:69a9a654bf92c059f41e37b6c21633c11ec38040141603bbf4ea2e9bf439ab8a"},
 			ImageManylinux2_28X86_64: {Tag: "2022-09-18-2b8b451", Digest: "sha256:99f01648515fdf3fb05b42c1f523f1b935876d8059d260583dd7bd855b43e111"},
 			ImageMusllinux1_1X86_64:  {Tag: "2022-09-18-2b8b451", Digest: "sha256:6e375fa43a95d12192d73c982401fe6118a9ad60b40ab9bfb51a781af916a9a9"},
@@ -420,6 +467,7 @@ var CibuildwheelPins = CibuildwheelPinTable{
 		Published: time.Date(2022, time.October, 13, 9, 4, 15, 0, time.UTC),
 		Commit:    "a9ad61c87f58b884fde0dc701650f9e8f02de1c5",
 		Images: map[string]PinnedImage{
+			ImageManylinux2010X86_64: {Tag: "2022-08-05-4535177", Digest: "sha256:3b5eb5ab9bc73b93740ae4eda9962078951cd3bb7efe837b770360e78c7366fb"},
 			ImageManylinux2014X86_64: {Tag: "2022-10-09-941e8b2", Digest: "sha256:29188962de928569c24b869179adb9d276168230dcf770a728d72f81f78fe42d"},
 			ImageManylinux2_28X86_64: {Tag: "2022-10-09-941e8b2", Digest: "sha256:32ce0af737284ba0621e4d3b876198c7a461ac728cd6d08e4718f7d069e73c31"},
 			ImageMusllinux1_1X86_64:  {Tag: "2022-10-09-941e8b2", Digest: "sha256:911f243daf9e25d91d387b1b89cddf7ed6a93b5e57a29088196a584a54bbb163"},
@@ -430,6 +478,7 @@ var CibuildwheelPins = CibuildwheelPinTable{
 		Published: time.Date(2022, time.October, 13, 10, 46, 36, 0, time.UTC),
 		Commit:    "190455139953dd8820b39f9eaf4390ed11320d90",
 		Images: map[string]PinnedImage{
+			ImageManylinux2010X86_64: {Tag: "2022-08-05-4535177", Digest: "sha256:3b5eb5ab9bc73b93740ae4eda9962078951cd3bb7efe837b770360e78c7366fb"},
 			ImageManylinux2014X86_64: {Tag: "2022-10-12-b8b6ebc", Digest: "sha256:f13e70d2246b65775ad272aed3d033af2e9fe6491071b96dde0e23ad23da9660"},
 			ImageManylinux2_28X86_64: {Tag: "2022-10-12-b8b6ebc", Digest: "sha256:48daeae76765494ba9a225210e685efa905eb0b65c19c4b91227acb3ac4da629"},
 			ImageMusllinux1_1X86_64:  {Tag: "2022-10-12-b8b6ebc", Digest: "sha256:68b87f43fb437184807d7ebeeeb9d9c2b7250d00a8658151d8fd84f13f36076b"},
@@ -440,6 +489,7 @@ var CibuildwheelPins = CibuildwheelPinTable{
 		Published: time.Date(2022, time.October, 26, 19, 5, 30, 0, time.UTC),
 		Commit:    "a6732b126f28affc0bef10118c6480ff722aa9ff",
 		Images: map[string]PinnedImage{
+			ImageManylinux2010X86_64: {Tag: "2022-08-05-4535177", Digest: "sha256:3b5eb5ab9bc73b93740ae4eda9962078951cd3bb7efe837b770360e78c7366fb"},
 			ImageManylinux2014X86_64: {Tag: "2022-10-25-fbea779", Digest: "sha256:166d4b4db6f163f2d7a2bfbef515239910f3eab7d93be38e620fe5fdeb682f42"},
 			ImageManylinux2_28X86_64: {Tag: "2022-10-25-fbea779", Digest: "sha256:7e0d90fee70d2b1c29894a0858e9f7ab7f337cff1479053789fce10c81220d58"},
 			ImageMusllinux1_1X86_64:  {Tag: "2022-10-25-fbea779", Digest: "sha256:de570e92d83360379de3fc38332ba02fddb4ac68f8cee7236d6fecbc7c5bac5e"},
@@ -450,6 +500,7 @@ var CibuildwheelPins = CibuildwheelPinTable{
 		Published: time.Date(2022, time.December, 5, 21, 31, 21, 0, time.UTC),
 		Commit:    "a34a6b0f72a20272544a22a4d348d0e6cf4f6c88",
 		Images: map[string]PinnedImage{
+			ImageManylinux2010X86_64: {Tag: "2022-08-05-4535177", Digest: "sha256:3b5eb5ab9bc73b93740ae4eda9962078951cd3bb7efe837b770360e78c7366fb"},
 			ImageManylinux2014X86_64: {Tag: "2022-11-27-b2d7fda", Digest: "sha256:d218f9d91d3ad0707354d09a5bf17f7d5ef8ff41e89073de16d9ed7f984fd9af"},
 			ImageManylinux2_28X86_64: {Tag: "2022-11-27-b2d7fda", Digest: "sha256:3348f388873e8e5629ba100a06f6f27438a4227ab2607ed90df0464b1f6d801d"},
 			ImageMusllinux1_1X86_64:  {Tag: "2022-11-27-b2d7fda", Digest: "sha256:398d1a442278bbb10e77d934f17ab82555c5651c355f588786e56373a7ab78b3"},
@@ -460,6 +511,7 @@ var CibuildwheelPins = CibuildwheelPinTable{
 		Published: time.Date(2022, time.December, 24, 15, 30, 31, 0, time.UTC),
 		Commit:    "27fc88e6385a995e61a87ee4b903bed263e6a6e2",
 		Images: map[string]PinnedImage{
+			ImageManylinux2010X86_64: {Tag: "2022-08-05-4535177", Digest: "sha256:3b5eb5ab9bc73b93740ae4eda9962078951cd3bb7efe837b770360e78c7366fb"},
 			ImageManylinux2014X86_64: {Tag: "2022-12-11-145d107", Digest: "sha256:54c66a6865280a601b3888601b741e3a1c362ef8ef5d969118a22275ea225102"},
 			ImageManylinux2_28X86_64: {Tag: "2022-12-11-145d107", Digest: "sha256:6518d997c29c8f8ab63e629ec2f7f0ff19ceae4ac7e818251fe439e266d9af17"},
 			ImageMusllinux1_1X86_64:  {Tag: "2022-12-11-145d107", Digest: "sha256:097515617023d3198045f552a1d2f845bef822290da1e67ca8fcea4dc042c677"},
@@ -470,6 +522,7 @@ var CibuildwheelPins = CibuildwheelPinTable{
 		Published: time.Date(2023, time.January, 16, 18, 37, 36, 0, time.UTC),
 		Commit:    "a808017c3962f4d678fe685239668aad8c150932",
 		Images: map[string]PinnedImage{
+			ImageManylinux2010X86_64: {Tag: "2022-08-05-4535177", Digest: "sha256:3b5eb5ab9bc73b93740ae4eda9962078951cd3bb7efe837b770360e78c7366fb"},
 			ImageManylinux2014X86_64: {Tag: "2023-01-14-103cb93", Digest: "sha256:58634594f47a3180f1f54531e55033443562deb590a4af7aed583451ee29242a"},
 			ImageManylinux2_28X86_64: {Tag: "2023-01-14-103cb93", Digest: "sha256:95a5d0724e6a54cadca6a428557959241cef3b5da17368ef482fa4be57580a6d"},
 			ImageMusllinux1_1X86_64:  {Tag: "2023-01-14-103cb93", Digest: "sha256:e41500d888de80e0e707f1e5c4567a730f8339037664ddcb3dd81d5f1e2dc09b"},
@@ -480,6 +533,7 @@ var CibuildwheelPins = CibuildwheelPinTable{
 		Published: time.Date(2023, time.March, 11, 13, 24, 36, 0, time.UTC),
 		Commit:    "02ad79a31bf7aa0eee07f690509048d2fb9fd445",
 		Images: map[string]PinnedImage{
+			ImageManylinux2010X86_64: {Tag: "2022-08-05-4535177", Digest: "sha256:3b5eb5ab9bc73b93740ae4eda9962078951cd3bb7efe837b770360e78c7366fb"},
 			ImageManylinux2014X86_64: {Tag: "2023-03-05-271004f", Digest: "sha256:622daa4e560c2d4926920921d2e48aa276e56493787217e55734f6c64cb51b56"},
 			ImageManylinux2_28X86_64: {Tag: "2023-03-05-271004f", Digest: "sha256:217e196d2a46cab6d9d3aa366a228afdb85ed8340841af05f97559b3f2aaee46"},
 			ImageMusllinux1_1X86_64:  {Tag: "2023-03-05-271004f", Digest: "sha256:a0d4fb18ebbbe1735286af6d1686b8037125ef38e77d9e5e72b2472172e7029c"},
@@ -490,6 +544,7 @@ var CibuildwheelPins = CibuildwheelPinTable{
 		Published: time.Date(2023, time.April, 18, 20, 13, 32, 0, time.UTC),
 		Commit:    "9f18d385cbb38b9c24f46a2c798f361ecea8fd5c",
 		Images: map[string]PinnedImage{
+			ImageManylinux2010X86_64: {Tag: "2022-08-05-4535177", Digest: "sha256:3b5eb5ab9bc73b93740ae4eda9962078951cd3bb7efe837b770360e78c7366fb"},
 			ImageManylinux2014X86_64: {Tag: "2023-04-16-157f52a", Digest: "sha256:bc1b92cee27af8cd949e6abb7036ec17e2ce66066a89131fdf6ec9212c6762e3"},
 			ImageManylinux2_28X86_64: {Tag: "2023-04-16-157f52a", Digest: "sha256:47e39e011cbd73378e020e4804adbb40621d26cd1e710679d0b3be8e8963f092"},
 			ImageMusllinux1_1X86_64:  {Tag: "2023-04-16-157f52a", Digest: "sha256:c6dd69280dd118d3d58c2f0907421e810b0d94f0ce98032a95f7618d94c1bd53"},
@@ -500,6 +555,7 @@ var CibuildwheelPins = CibuildwheelPinTable{
 		Published: time.Date(2023, time.April, 19, 8, 2, 51, 0, time.UTC),
 		Commit:    "5e15bb25b428e1bf2daf2215f173d2b40135f56f",
 		Images: map[string]PinnedImage{
+			ImageManylinux2010X86_64: {Tag: "2022-08-05-4535177", Digest: "sha256:3b5eb5ab9bc73b93740ae4eda9962078951cd3bb7efe837b770360e78c7366fb"},
 			ImageManylinux2014X86_64: {Tag: "2023-04-16-157f52a", Digest: "sha256:bc1b92cee27af8cd949e6abb7036ec17e2ce66066a89131fdf6ec9212c6762e3"},
 			ImageManylinux2_28X86_64: {Tag: "2023-04-16-157f52a", Digest: "sha256:47e39e011cbd73378e020e4804adbb40621d26cd1e710679d0b3be8e8963f092"},
 			ImageMusllinux1_1X86_64:  {Tag: "2023-04-16-157f52a", Digest: "sha256:c6dd69280dd118d3d58c2f0907421e810b0d94f0ce98032a95f7618d94c1bd53"},
@@ -510,6 +566,7 @@ var CibuildwheelPins = CibuildwheelPinTable{
 		Published: time.Date(2023, time.May, 28, 16, 5, 53, 0, time.UTC),
 		Commit:    "51f5c7fe68ff24694d5a6ac0eb3ad476ddd062a8",
 		Images: map[string]PinnedImage{
+			ImageManylinux2010X86_64: {Tag: "2022-08-05-4535177", Digest: "sha256:3b5eb5ab9bc73b93740ae4eda9962078951cd3bb7efe837b770360e78c7366fb"},
 			ImageManylinux2014X86_64: {Tag: "2023-05-24-3bf828e", Digest: "sha256:181676656e7c12ac1fe3347f5260e0e980fb227d1dbe21733f56a6f6845a789f"},
 			ImageManylinux2_28X86_64: {Tag: "2023-05-24-3bf828e", Digest: "sha256:1a0df55fac57910c908fe54728709dcdadb9163dd1eec85f1302b820c83c45b3"},
 			ImageMusllinux1_1X86_64:  {Tag: "2023-05-24-3bf828e", Digest: "sha256:a46f73f66aa7be45d95b56bc5cea86d8d7e83acaa9ade2a6b1d23e88ce75be32"},
@@ -520,6 +577,7 @@ var CibuildwheelPins = CibuildwheelPinTable{
 		Published: time.Date(2023, time.June, 10, 12, 23, 48, 0, time.UTC),
 		Commit:    "0ecddd92b62987d7a2ae8911f4bb8ec9e2e4496a",
 		Images: map[string]PinnedImage{
+			ImageManylinux2010X86_64: {Tag: "2022-08-05-4535177", Digest: "sha256:3b5eb5ab9bc73b93740ae4eda9962078951cd3bb7efe837b770360e78c7366fb"},
 			ImageManylinux2014X86_64: {Tag: "2023-06-08-775c518", Digest: "sha256:aa23bf326064d6c87869fc9e9fcc8649bbb27043da44144f53e3730009021e00"},
 			ImageManylinux2_28X86_64: {Tag: "2023-06-08-775c518", Digest: "sha256:9c068f39e91b7dc1f0e6e729f7eeeb341bb4e394368ad283cb10f456025875d0"},
 			ImageMusllinux1_1X86_64:  {Tag: "2023-06-08-775c518", Digest: "sha256:b068b8a545ceee73e4255b373495e1d8a27faacb48be2b47b5d09ab96c112aab"},
@@ -530,6 +588,7 @@ var CibuildwheelPins = CibuildwheelPinTable{
 		Published: time.Date(2023, time.July, 10, 10, 45, 21, 0, time.UTC),
 		Commit:    "66b46d086804a9e9782354100d96a3a445431bca",
 		Images: map[string]PinnedImage{
+			ImageManylinux2010X86_64: {Tag: "2022-08-05-4535177", Digest: "sha256:3b5eb5ab9bc73b93740ae4eda9962078951cd3bb7efe837b770360e78c7366fb"},
 			ImageManylinux2014X86_64: {Tag: "2023-07-06-73b0312", Digest: "sha256:a69b757e023588080bb06182b53b3dc32403617de2f806b7c76b48a9d9c624f0"},
 			ImageManylinux2_28X86_64: {Tag: "2023-07-06-73b0312", Digest: "sha256:9f6e5bd684cebfbb39236fa88789f541bb282c902bace39608fd1adec188e17e"},
 			ImageMusllinux1_1X86_64:  {Tag: "2023-07-06-73b0312", Digest: "sha256:a4594dcb569b0a485999c2010c013f46205771702bac36a45cd1ec3fc6b37f53"},
@@ -540,6 +599,7 @@ var CibuildwheelPins = CibuildwheelPinTable{
 		Published: time.Date(2023, time.July, 15, 8, 55, 2, 0, time.UTC),
 		Commit:    "f21bb8376a051ffb6cb5604b28ccaef7b90e8ab7",
 		Images: map[string]PinnedImage{
+			ImageManylinux2010X86_64: {Tag: "2022-08-05-4535177", Digest: "sha256:3b5eb5ab9bc73b93740ae4eda9962078951cd3bb7efe837b770360e78c7366fb"},
 			ImageManylinux2014X86_64: {Tag: "2023-07-14-55e4124", Digest: "sha256:eab4c20f80c8aeb758ccfb4cd235c9d168adb02cac83b085f0aec64101d5bdf2"},
 			ImageManylinux2_28X86_64: {Tag: "2023-07-14-55e4124", Digest: "sha256:56f72975078d5abf0d719606779fa8fbd797910b2bd532797c8bf3204213a14a"},
 			ImageMusllinux1_1X86_64:  {Tag: "2023-07-14-55e4124", Digest: "sha256:98fa5374d712ee23863f322022097340156a3858df736aee76b422b5b6540a16"},
@@ -550,6 +610,7 @@ var CibuildwheelPins = CibuildwheelPinTable{
 		Published: time.Date(2023, time.August, 8, 18, 2, 29, 0, time.UTC),
 		Commit:    "39a63b5912f086dd459cf6fcb13dcdd3fe3bc24d",
 		Images: map[string]PinnedImage{
+			ImageManylinux2010X86_64: {Tag: "2022-08-05-4535177", Digest: "sha256:3b5eb5ab9bc73b93740ae4eda9962078951cd3bb7efe837b770360e78c7366fb"},
 			ImageManylinux2014X86_64: {Tag: "2023-08-07-e3f636d", Digest: "sha256:6b61fd1ad2cb7c0c409a037663b7289201ed2570db7076842f3a34459398c8ab"},
 			ImageManylinux2_28X86_64: {Tag: "2023-08-07-e3f636d", Digest: "sha256:9bb08d82445bca364cb7f0b73e64464fefdd5ac10f13418883c156cb9557dde5"},
 			ImageMusllinux1_1X86_64:  {Tag: "2023-08-07-e3f636d", Digest: "sha256:2febd6e70eed9e74df31e5f3967be96d3d2776fd891e2347d71abcd6d3b301d3"},
@@ -561,6 +622,7 @@ var CibuildwheelPins = CibuildwheelPinTable{
 		Published: time.Date(2023, time.September, 18, 17, 48, 4, 0, time.UTC),
 		Commit:    "a873dd9cbf9e3c4c73a1fd11ac31cf835f6eb502",
 		Images: map[string]PinnedImage{
+			ImageManylinux2010X86_64: {Tag: "2022-08-05-4535177", Digest: "sha256:3b5eb5ab9bc73b93740ae4eda9962078951cd3bb7efe837b770360e78c7366fb"},
 			ImageManylinux2014X86_64: {Tag: "2023-09-17-ae90a16", Digest: "sha256:1daa7e6160cc707c2db44708b756fe18c163cd8ab70f76d4a23432b3c6a5b45d"},
 			ImageManylinux2_28X86_64: {Tag: "2023-09-17-ae90a16", Digest: "sha256:bde3ffb0694a8359dce3558e17e18be08151c1e6cecac101c19ae5721938cc7f"},
 			ImageMusllinux1_1X86_64:  {Tag: "2023-09-17-ae90a16", Digest: "sha256:35eecf24a7d01e1a79d215641f891f2da4dfbf393941eb24a3fa050408a4fc3b"},
@@ -572,6 +634,7 @@ var CibuildwheelPins = CibuildwheelPinTable{
 		Published: time.Date(2023, time.September, 26, 8, 53, 50, 0, time.UTC),
 		Commit:    "7da7df1efc530f07d1945c00934b8cfd34be0d50",
 		Images: map[string]PinnedImage{
+			ImageManylinux2010X86_64: {Tag: "2022-08-05-4535177", Digest: "sha256:3b5eb5ab9bc73b93740ae4eda9962078951cd3bb7efe837b770360e78c7366fb"},
 			ImageManylinux2014X86_64: {Tag: "2023-09-24-36b93e4", Digest: "sha256:07145d872015f593222ac57874e0ef14f3f4bde5b391ff4d1be8979c28170d7e"},
 			ImageManylinux2_28X86_64: {Tag: "2023-09-24-36b93e4", Digest: "sha256:69166ba72e6905c00ea2857c2f98e14d20dbb5c89c6627fdaa2ca78639c601c9"},
 			ImageMusllinux1_1X86_64:  {Tag: "2023-09-24-36b93e4", Digest: "sha256:f44e679c6454ce9dca00bd6d0a0fdd6180c476cb309ea6e41d8c476b8b555478"},
@@ -583,6 +646,7 @@ var CibuildwheelPins = CibuildwheelPinTable{
 		Published: time.Date(2023, time.October, 3, 19, 9, 31, 0, time.UTC),
 		Commit:    "fff9ec32ed25a9c576750c91e06b410ed0c15db7",
 		Images: map[string]PinnedImage{
+			ImageManylinux2010X86_64: {Tag: "2022-08-05-4535177", Digest: "sha256:3b5eb5ab9bc73b93740ae4eda9962078951cd3bb7efe837b770360e78c7366fb"},
 			ImageManylinux2014X86_64: {Tag: "2023-10-03-72cdc42", Digest: "sha256:29ae5cc1fbe9c6cc65cfb83148a7ccdaa5ecac8134cb94ed3722738c6851a0f1"},
 			ImageManylinux2_28X86_64: {Tag: "2023-10-03-72cdc42", Digest: "sha256:c7a9015a36cae1a31bc6aa551b77ea366c9f42445c95d0dfe25a20782d361457"},
 			ImageMusllinux1_1X86_64:  {Tag: "2023-10-03-72cdc42", Digest: "sha256:26209e77323397c83632e9ae21928882b148ad5e669a04b6601176f667e35b0e"},
@@ -594,6 +658,7 @@ var CibuildwheelPins = CibuildwheelPinTable{
 		Published: time.Date(2024, time.January, 26, 19, 23, 34, 0, time.UTC),
 		Commit:    "e250df5d5da8c45226a8de1a80e6bfbbf46f5e4b",
 		Images: map[string]PinnedImage{
+			ImageManylinux2010X86_64: {Tag: "2022-08-05-4535177", Digest: "sha256:3b5eb5ab9bc73b93740ae4eda9962078951cd3bb7efe837b770360e78c7366fb"},
 			ImageManylinux2014X86_64: {Tag: "2024-01-08-eb135ed", Digest: "sha256:460f6d2125c112e8b1a5fa413673e2e58322f05ff996255cada0ec9bd8347111"},
 			ImageManylinux2_28X86_64: {Tag: "2024-01-08-eb135ed", Digest: "sha256:f2c9024c753f7dcec93900cae8815ca4f1e47178d435c42b98a21b633a1028eb"},
 			ImageMusllinux1_1X86_64:  {Tag: "2024-01-08-eb135ed", Digest: "sha256:8ff1a2c54e73ac91a327b72c8acafacc59d415f1c66bace4933c719d4cbf61f5"},
@@ -605,6 +670,7 @@ var CibuildwheelPins = CibuildwheelPinTable{
 		Published: time.Date(2024, time.January, 28, 17, 23, 44, 0, time.UTC),
 		Commit:    "0b04ab1040366101259658b355777e4ff2d16f83",
 		Images: map[string]PinnedImage{
+			ImageManylinux2010X86_64: {Tag: "2022-08-05-4535177", Digest: "sha256:3b5eb5ab9bc73b93740ae4eda9962078951cd3bb7efe837b770360e78c7366fb"},
 			ImageManylinux2014X86_64: {Tag: "2024-01-23-12ffabc", Digest: "sha256:6200507e50ec3f20ef1874d2b3d0f8edbaf1ecfd5a65dac1178b82faf6a8eed4"},
 			ImageManylinux2_28X86_64: {Tag: "2024-01-23-12ffabc", Digest: "sha256:ed8e07fb14ad078baf84d96d6e159d833684b4a56ca9d639eb1b5a94fd7a5361"},
 			ImageMusllinux1_1X86_64:  {Tag: "2024-01-23-12ffabc", Digest: "sha256:755c8471cad556d399f729fe574453b743d53d1b85074a23dd5ebdeacf6c1b50"},
@@ -616,6 +682,7 @@ var CibuildwheelPins = CibuildwheelPinTable{
 		Published: time.Date(2024, time.January, 30, 23, 16, 11, 0, time.UTC),
 		Commit:    "ce3fb7832089eb3e723a0a99cab7f3eaccf074fd",
 		Images: map[string]PinnedImage{
+			ImageManylinux2010X86_64: {Tag: "2022-08-05-4535177", Digest: "sha256:3b5eb5ab9bc73b93740ae4eda9962078951cd3bb7efe837b770360e78c7366fb"},
 			ImageManylinux2014X86_64: {Tag: "2024-01-23-12ffabc", Digest: "sha256:6200507e50ec3f20ef1874d2b3d0f8edbaf1ecfd5a65dac1178b82faf6a8eed4"},
 			ImageManylinux2_28X86_64: {Tag: "2024-01-23-12ffabc", Digest: "sha256:ed8e07fb14ad078baf84d96d6e159d833684b4a56ca9d639eb1b5a94fd7a5361"},
 			ImageMusllinux1_1X86_64:  {Tag: "2024-01-23-12ffabc", Digest: "sha256:755c8471cad556d399f729fe574453b743d53d1b85074a23dd5ebdeacf6c1b50"},
@@ -627,6 +694,7 @@ var CibuildwheelPins = CibuildwheelPinTable{
 		Published: time.Date(2024, time.March, 11, 21, 22, 5, 0, time.UTC),
 		Commit:    "8d945475ac4b1aac4ae08b2fd27db9917158b6ce",
 		Images: map[string]PinnedImage{
+			ImageManylinux2010X86_64: {Tag: "2022-08-05-4535177", Digest: "sha256:3b5eb5ab9bc73b93740ae4eda9962078951cd3bb7efe837b770360e78c7366fb"},
 			ImageManylinux2014X86_64: {Tag: "2024-03-10-4935fcc", Digest: "sha256:36addcca8e9fb11f106ccb7fb61fc9bfc44aa407ce82e7fa3762deedc696cf59"},
 			ImageManylinux2_28X86_64: {Tag: "2024-03-10-4935fcc", Digest: "sha256:b4c1a31a186b3b08f3d9ed7e7d999297abc4d3291944839fe7a9d88aa642cba9"},
 			ImageMusllinux1_1X86_64:  {Tag: "2024-03-10-4935fcc", Digest: "sha256:f0fae2381d9cb6270fd9210cde60d05c8939f1b9a6de08427bf0ec818fac8b38"},
@@ -638,6 +706,7 @@ var CibuildwheelPins = CibuildwheelPinTable{
 		Published: time.Date(2024, time.May, 12, 4, 19, 43, 0, time.UTC),
 		Commit:    "711a3d017d0729f3edde18545fee967f03d65f65",
 		Images: map[string]PinnedImage{
+			ImageManylinux2010X86_64: {Tag: "2022-08-05-4535177", Digest: "sha256:3b5eb5ab9bc73b93740ae4eda9962078951cd3bb7efe837b770360e78c7366fb"},
 			ImageManylinux2014X86_64: {Tag: "2024-05-10-7415d48", Digest: "sha256:69db66df471ef1431daf4bcbd625a563dc88281d11cc3e5389781ed6ca908529"},
 			ImageManylinux2_28X86_64: {Tag: "2024-05-10-7415d48", Digest: "sha256:b303c44dbb17b6e17783e35661e898eb7a4a6515f96712e88f1e123ba992634e"},
 			ImageMusllinux1_1X86_64:  {Tag: "2024-05-10-7415d48", Digest: "sha256:9caa77da6bca1e1a2f3a019ba9e819a1f389d53a0b3a4e9a7b39c68d77ca5325"},
@@ -649,6 +718,7 @@ var CibuildwheelPins = CibuildwheelPinTable{
 		Published: time.Date(2024, time.May, 20, 11, 25, 5, 0, time.UTC),
 		Commit:    "ba8be0d98853f5744f24e7f902c8adef7ae2e7f3",
 		Images: map[string]PinnedImage{
+			ImageManylinux2010X86_64: {Tag: "2022-08-05-4535177", Digest: "sha256:3b5eb5ab9bc73b93740ae4eda9962078951cd3bb7efe837b770360e78c7366fb"},
 			ImageManylinux2014X86_64: {Tag: "2024-05-13-0983f6f", Digest: "sha256:b31275b340d8661e45a9eed29ca93d605a702557781fa65a7cb35bc9639165ad"},
 			ImageManylinux2_28X86_64: {Tag: "2024-05-13-0983f6f", Digest: "sha256:229d0e2a9faf7e99f3ee452f433eb1bab9a0195a5258230162fa35934e85a159"},
 			ImageMusllinux1_1X86_64:  {Tag: "2024-05-13-0983f6f", Digest: "sha256:d26b70590029a5cc1dffd68846c1f0ecc9c80187c6b2f8029e737ae934c05b04"},
@@ -660,6 +730,7 @@ var CibuildwheelPins = CibuildwheelPinTable{
 		Published: time.Date(2024, time.June, 10, 15, 30, 24, 0, time.UTC),
 		Commit:    "a8d190a111314a07eb5116036c4b3fb26a4e3162",
 		Images: map[string]PinnedImage{
+			ImageManylinux2010X86_64: {Tag: "2022-08-05-4535177", Digest: "sha256:3b5eb5ab9bc73b93740ae4eda9962078951cd3bb7efe837b770360e78c7366fb"},
 			ImageManylinux2014X86_64: {Tag: "2024-06-06-99f15a7", Digest: "sha256:32062dc73ac000e96b98adfa067a77245390a806a3e1c7851e820ddf66f6b951"},
 			ImageManylinux2_28X86_64: {Tag: "2024-06-06-99f15a7", Digest: "sha256:099d778b4fd931190dbc5f38e0035c9fefc69dd26c58d25bb4fae22f51acfd47"},
 			ImageMusllinux1_1X86_64:  {Tag: "2024-06-06-99f15a7", Digest: "sha256:ab93e08ae328d025f7c74d529e9140a95c294d09864ae157af8e20826d5a0c22"},
@@ -671,6 +742,7 @@ var CibuildwheelPins = CibuildwheelPinTable{
 		Published: time.Date(2024, time.June, 13, 6, 40, 28, 0, time.UTC),
 		Commit:    "932529cab190fafca8c735a551657247fa8f8eaf",
 		Images: map[string]PinnedImage{
+			ImageManylinux2010X86_64: {Tag: "2022-08-05-4535177", Digest: "sha256:3b5eb5ab9bc73b93740ae4eda9962078951cd3bb7efe837b770360e78c7366fb"},
 			ImageManylinux2014X86_64: {Tag: "2024.06.12-1", Digest: "sha256:727a9a46ae1052fc28f8dfee8ab2bc3c5f283914ab39c1f13fa4a3016ba067d9"},
 			ImageManylinux2_28X86_64: {Tag: "2024.06.12-1", Digest: "sha256:39bb36d186e76e19438626f9dd2a06c0edb1ec71e69377694be3f97ad227f364"},
 			ImageMusllinux1_1X86_64:  {Tag: "2024.06.12-1", Digest: "sha256:2eb9ae9fd974ab9a173e87c7b3e58cd1f1c6e7ad5135dee73ca33698b478e163"},
@@ -682,6 +754,7 @@ var CibuildwheelPins = CibuildwheelPinTable{
 		Published: time.Date(2024, time.July, 2, 12, 11, 10, 0, time.UTC),
 		Commit:    "7e5a838a63ac8128d71ab2dfd99e4634dd1bca09",
 		Images: map[string]PinnedImage{
+			ImageManylinux2010X86_64: {Tag: "2022-08-05-4535177", Digest: "sha256:3b5eb5ab9bc73b93740ae4eda9962078951cd3bb7efe837b770360e78c7366fb"},
 			ImageManylinux2014X86_64: {Tag: "2024.07.02-0", Digest: "sha256:b8a442f00c20eaf830f45ccef3f21e12b561238e2af61abffca014f3a34590f6"},
 			ImageManylinux2_28X86_64: {Tag: "2024.07.02-0", Digest: "sha256:1e365067728237f3634303b1da88b605a683b573c169ff8fd2889d25ee6acbca"},
 			ImageMusllinux1_1X86_64:  {Tag: "2024.07.02-0", Digest: "sha256:c4b3591352878ac58b5968b954ea20c02dca88916aaf960f7eabaa31d34dd2dd"},
@@ -693,6 +766,7 @@ var CibuildwheelPins = CibuildwheelPinTable{
 		Published: time.Date(2024, time.August, 4, 2, 41, 16, 0, time.UTC),
 		Commit:    "bd033a44476646b606efccdd5eed92d5ea1d77ad",
 		Images: map[string]PinnedImage{
+			ImageManylinux2010X86_64: {Tag: "2022-08-05-4535177", Digest: "sha256:3b5eb5ab9bc73b93740ae4eda9962078951cd3bb7efe837b770360e78c7366fb"},
 			ImageManylinux2014X86_64: {Tag: "2024.08.03-1", Digest: "sha256:e620e1be73a5cc9aa8fbefa17faf545b61aa9417887030dae568db2137cb19b4"},
 			ImageManylinux2_28X86_64: {Tag: "2024.08.03-1", Digest: "sha256:cd227b85f0b2a12a509ae9f674e9bd87a82abf51a10b973e9eaa495f8b441c0a"},
 			ImageMusllinux1_1X86_64:  {Tag: "2024.08.03-1", Digest: "sha256:63a798866c56435aa50a8766b6b488c9e980f028cba5e9417c34f875478f8108"},
@@ -704,6 +778,7 @@ var CibuildwheelPins = CibuildwheelPinTable{
 		Published: time.Date(2024, time.September, 13, 15, 44, 57, 0, time.UTC),
 		Commit:    "79b0dd328794e1180a7268444d46cdf12e1abd01",
 		Images: map[string]PinnedImage{
+			ImageManylinux2010X86_64: {Tag: "2022-08-05-4535177", Digest: "sha256:3b5eb5ab9bc73b93740ae4eda9962078951cd3bb7efe837b770360e78c7366fb"},
 			ImageManylinux2014X86_64: {Tag: "2024.09.09-0", Digest: "sha256:f9274ea3d460654640130caf07dd331c011289c1812b5cfdbad5e360576012a0"},
 			ImageManylinux2_28X86_64: {Tag: "2024.09.09-0", Digest: "sha256:f61937a94c402eaf53dc5ab140eae1fa447123001569178e3fd880c68b120cbd"},
 			ImageMusllinux1_1X86_64:  {Tag: "2024.09.09-0", Digest: "sha256:b7bb1a40717a778be17e19ae59798e5c06b4068cd9c59352bbf7b442fa9188e1"},
@@ -715,6 +790,7 @@ var CibuildwheelPins = CibuildwheelPinTable{
 		Published: time.Date(2024, time.September, 17, 1, 7, 23, 0, time.UTC),
 		Commit:    "d4a2945fcc8d13f20a1b99d461b8e844d5fc6e23",
 		Images: map[string]PinnedImage{
+			ImageManylinux2010X86_64: {Tag: "2022-08-05-4535177", Digest: "sha256:3b5eb5ab9bc73b93740ae4eda9962078951cd3bb7efe837b770360e78c7366fb"},
 			ImageManylinux2014X86_64: {Tag: "2024.09.16-1", Digest: "sha256:03fe2852d50daf4d8329fe65ff187603e7a90c4e2f326014cecbc323f8f2d2bf"},
 			ImageManylinux2_28X86_64: {Tag: "2024.09.16-1", Digest: "sha256:cad96401be220094685dcaa1d032e5071cfe69446327dcf1f8534b72e374e0bb"},
 			ImageMusllinux1_1X86_64:  {Tag: "2024.09.16-1", Digest: "sha256:aa2a3c8d3cb06da6b81c0c396bec42c914b6f3d00e650e363d4648652e04bf4b"},
@@ -726,6 +802,7 @@ var CibuildwheelPins = CibuildwheelPinTable{
 		Published: time.Date(2024, time.October, 2, 21, 53, 47, 0, time.UTC),
 		Commit:    "f1859528322d7b29d4493ee241a167807661dfb4",
 		Images: map[string]PinnedImage{
+			ImageManylinux2010X86_64: {Tag: "2022-08-05-4535177", Digest: "sha256:3b5eb5ab9bc73b93740ae4eda9962078951cd3bb7efe837b770360e78c7366fb"},
 			ImageManylinux2014X86_64: {Tag: "2024.10.01-1", Digest: "sha256:2ee3e1329ba3e85d783a4128b755803a2c7f7a42a5454464cc325df29e254b9e"},
 			ImageManylinux2_28X86_64: {Tag: "2024.10.01-1", Digest: "sha256:cea0ade79068b36deae7eb7a04b4192e5ba2761d045ba5a92ba36eb5ce5f88b6"},
 			ImageMusllinux1_1X86_64:  {Tag: "2024.10.01-1", Digest: "sha256:91cc54ce463bd5d28b20267afe769fcbf16fccf97482ed4f497d9e41fb59a33b"},
@@ -737,6 +814,7 @@ var CibuildwheelPins = CibuildwheelPinTable{
 		Published: time.Date(2024, time.October, 9, 8, 7, 5, 0, time.UTC),
 		Commit:    "7940a4c0e76eb2030e473a5f864f291f63ee879b",
 		Images: map[string]PinnedImage{
+			ImageManylinux2010X86_64: {Tag: "2022-08-05-4535177", Digest: "sha256:3b5eb5ab9bc73b93740ae4eda9962078951cd3bb7efe837b770360e78c7366fb"},
 			ImageManylinux2014X86_64: {Tag: "2024.10.07-1", Digest: "sha256:41269ff9c2edb74de6fe65eb8c9db2b5e03370ce7f3da313aa7e3134c9371892"},
 			ImageManylinux2_28X86_64: {Tag: "2024.10.07-1", Digest: "sha256:7251f50cc3380767a79044762bc13a9089b4905c15c9600335c63eb90c0a8284"},
 			ImageMusllinux1_1X86_64:  {Tag: "2024.10.07-1", Digest: "sha256:ce0700c16b46b2bd2ae5e4c39b131c075da03e8cf84da0b7076fbf24a51057b6"},
@@ -748,6 +826,7 @@ var CibuildwheelPins = CibuildwheelPinTable{
 		Published: time.Date(2024, time.November, 23, 6, 47, 7, 0, time.UTC),
 		Commit:    "ee63bf16da6cddfb925f542f2c7b59ad50e93969",
 		Images: map[string]PinnedImage{
+			ImageManylinux2010X86_64: {Tag: "2022-08-05-4535177", Digest: "sha256:3b5eb5ab9bc73b93740ae4eda9962078951cd3bb7efe837b770360e78c7366fb"},
 			ImageManylinux2014X86_64: {Tag: "2024.11.16-1", Digest: "sha256:f09bf382e4bcbd5b3cab130f8d0f12dbe474833f95f54182e80e8c0aaa269ff0"},
 			ImageManylinux2_28X86_64: {Tag: "2024.11.16-1", Digest: "sha256:2b65d3c9b6c04b1af69df6786e2a4da894df0b5ad55f68bae97b005e3b11a3c9"},
 			ImageMusllinux1_1X86_64:  {Tag: "2024.10.26-1", Digest: "sha256:79908067ecc89a594474c799331ca1ef27ae36bda08960aca5a9a31c28453ef1"},
@@ -759,6 +838,7 @@ var CibuildwheelPins = CibuildwheelPinTable{
 		Published: time.Date(2025, time.March, 1, 13, 29, 31, 0, time.UTC),
 		Commit:    "6cccd09a31908ffd175b012fb8bf4e1dbda3bc6c",
 		Images: map[string]PinnedImage{
+			ImageManylinux2010X86_64: {Tag: "2022-08-05-4535177", Digest: "sha256:3b5eb5ab9bc73b93740ae4eda9962078951cd3bb7efe837b770360e78c7366fb"},
 			ImageManylinux2014X86_64: {Tag: "2025.02.28-1", Digest: "sha256:a6d4a35895e0a5bec65b8192952b26c8bd46df9f048115884bb9ac80a3b7e663"},
 			ImageManylinux2_28X86_64: {Tag: "2025.02.28-1", Digest: "sha256:2b290a5caa6d2590dbf35461ac5607dc6d658a2246a9e962211b189210132418"},
 			ImageMusllinux1_1X86_64:  {Tag: "2024.10.26-1", Digest: "sha256:79908067ecc89a594474c799331ca1ef27ae36bda08960aca5a9a31c28453ef1"},
@@ -770,6 +850,7 @@ var CibuildwheelPins = CibuildwheelPinTable{
 		Published: time.Date(2025, time.March, 15, 18, 0, 18, 0, time.UTC),
 		Commit:    "42728e866bbc80d544a70825bd9990b9a26f1a50",
 		Images: map[string]PinnedImage{
+			ImageManylinux2010X86_64: {Tag: "2022-08-05-4535177", Digest: "sha256:3b5eb5ab9bc73b93740ae4eda9962078951cd3bb7efe837b770360e78c7366fb"},
 			ImageManylinux2014X86_64: {Tag: "2025.03.09-1", Digest: "sha256:d53d16c5e3534f96ec749666aeba593d6498107e80c0cbf161b9163cce356297"},
 			ImageManylinux2_28X86_64: {Tag: "2025.03.09-1", Digest: "sha256:bdcd177f75d8b9d5a0a3d017b69d83d8b97cdaed92ca7caf0f9605bb429c5d07"},
 			ImageMusllinux1_1X86_64:  {Tag: "2024.10.26-1", Digest: "sha256:79908067ecc89a594474c799331ca1ef27ae36bda08960aca5a9a31c28453ef1"},
@@ -781,6 +862,7 @@ var CibuildwheelPins = CibuildwheelPinTable{
 		Published: time.Date(2025, time.March, 24, 21, 26, 55, 0, time.UTC),
 		Commit:    "d04cacbc9866d432033b1d09142936e6a0e2121a",
 		Images: map[string]PinnedImage{
+			ImageManylinux2010X86_64: {Tag: "2022-08-05-4535177", Digest: "sha256:3b5eb5ab9bc73b93740ae4eda9962078951cd3bb7efe837b770360e78c7366fb"},
 			ImageManylinux2014X86_64: {Tag: "2025.03.23-1", Digest: "sha256:ae4cea7cb06942a2fce1aa244ca568fe10ac6d9aab97c30158cf9aae0ce5e626"},
 			ImageManylinux2_28X86_64: {Tag: "2025.03.23-1", Digest: "sha256:7f7c6db512db86a6a559d5863107004004f53f369e371cdaefce47f8bda0bc2a"},
 			ImageMusllinux1_1X86_64:  {Tag: "2024.10.26-1", Digest: "sha256:79908067ecc89a594474c799331ca1ef27ae36bda08960aca5a9a31c28453ef1"},
@@ -792,6 +874,7 @@ var CibuildwheelPins = CibuildwheelPinTable{
 		Published: time.Date(2025, time.April, 26, 10, 41, 26, 0, time.UTC),
 		Commit:    "faf86a6ed7efa889faf6996aa23820831055001a",
 		Images: map[string]PinnedImage{
+			ImageManylinux2010X86_64: {Tag: "2022-08-05-4535177", Digest: "sha256:3b5eb5ab9bc73b93740ae4eda9962078951cd3bb7efe837b770360e78c7366fb"},
 			ImageManylinux2014X86_64: {Tag: "2025.04.19-1", Digest: "sha256:df319a1a2a0b67fabde721e7a2008ad16257e348172cc0a29d0f1f09b82f1aa8"},
 			ImageManylinux2_28X86_64: {Tag: "2025.04.19-1", Digest: "sha256:7d89e036b9493f94a0bb252c1db4ab3f71f5b83874cb274f85b3c40be712f513"},
 			ImageMusllinux1_1X86_64:  {Tag: "2024.10.26-1", Digest: "sha256:79908067ecc89a594474c799331ca1ef27ae36bda08960aca5a9a31c28453ef1"},
@@ -803,6 +886,7 @@ var CibuildwheelPins = CibuildwheelPinTable{
 		Published: time.Date(2026, time.March, 16, 19, 33, 12, 0, time.UTC),
 		Commit:    "e5486e0b831d3a4954f271c2a053fbbc0e227d6a",
 		Images: map[string]PinnedImage{
+			ImageManylinux2010X86_64: {Tag: "2022-08-05-4535177", Digest: "sha256:3b5eb5ab9bc73b93740ae4eda9962078951cd3bb7efe837b770360e78c7366fb"},
 			ImageManylinux2014X86_64: {Tag: "2025.04.19-1", Digest: "sha256:df319a1a2a0b67fabde721e7a2008ad16257e348172cc0a29d0f1f09b82f1aa8"},
 			ImageManylinux2_28X86_64: {Tag: "2025.04.19-1", Digest: "sha256:7d89e036b9493f94a0bb252c1db4ab3f71f5b83874cb274f85b3c40be712f513"},
 			ImageMusllinux1_1X86_64:  {Tag: "2024.10.26-1", Digest: "sha256:79908067ecc89a594474c799331ca1ef27ae36bda08960aca5a9a31c28453ef1"},

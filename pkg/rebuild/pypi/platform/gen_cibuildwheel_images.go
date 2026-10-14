@@ -12,7 +12,7 @@
 //  1. Lists the final cibuildwheel releases and their upload times on PyPI
 //  2. Lists the commits that the release tags point to on GitHub
 //  3. Reads the x86_64 pins at the tag of each release on GitHub
-//  4. Keeps the pins of the image repositories that SelectBaseImage returns
+//  4. Keeps the pins of the image repositories that inference selects
 //  5. Resolves pinned tags to manifest digests using the quay.io API
 //  6. Writes the commit and the pins of each release, sorted by version
 //
@@ -66,9 +66,10 @@ const (
 	maxAttempts = 5
 )
 
-// supportedRepos maps the image repositories that SelectBaseImage returns to
+// supportedRepos maps the image repositories that inference selects to
 // the names of their constants.
 var supportedRepos = map[string]string{
+	"quay.io/pypa/manylinux2010_x86_64":  "ImageManylinux2010X86_64",
 	"quay.io/pypa/manylinux2014_x86_64":  "ImageManylinux2014X86_64",
 	"quay.io/pypa/manylinux_2_28_x86_64": "ImageManylinux2_28X86_64",
 	"quay.io/pypa/manylinux_2_34_x86_64": "ImageManylinux2_34X86_64",
