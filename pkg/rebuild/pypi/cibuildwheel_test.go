@@ -40,6 +40,35 @@ func TestCibuildwheelVersions(t *testing.T) {
 			want: nil,
 		},
 		{
+			name: "ForkedActionTag",
+			workflow: `
+				jobs:
+				  wheels:
+				    steps:
+				      - uses: closeio/cibuildwheel@v3.1.4`,
+			want: []string{"3.1.4"},
+		},
+		{
+			// Forks share the commits of upstream release tags.
+			name: "ForkedActionCommit",
+			workflow: `
+				jobs:
+				  wheels:
+				    steps:
+				      - uses: closeio/cibuildwheel@` + testCommit("5"),
+			want: []string{"2.16.2"},
+		},
+		{
+			name: "OtherActionWithSimilarName",
+			workflow: `
+				jobs:
+				  wheels:
+				    steps:
+				      - uses: example/cibuildwheel-action@v2.16.2
+				      - uses: example/actions/cibuildwheel@v2.16.2`,
+			want: nil,
+		},
+		{
 			name: "ActionMinorTag",
 			workflow: `
 				jobs:

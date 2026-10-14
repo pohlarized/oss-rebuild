@@ -25,8 +25,9 @@ var (
 	// cibuildwheelActionPat matches a step that uses the cibuildwheel action by
 	// a release tag, such as "pypa/cibuildwheel@v2.16.2", by a floating minor
 	// tag, such as "pypa/cibuildwheel@v2.16", or by the full hash of a tagged
-	// commit.
-	cibuildwheelActionPat = re.MustCompile(`^pypa/cibuildwheel@(?:v?(\d+\.\d+\.\d+)|v?(\d+\.\d+)|([0-9a-f]{40}))$`)
+	// commit. Forks of the action, such as "closeio/cibuildwheel@v3.1.4", are
+	// assumed to keep the release tags and pins of the upstream repository.
+	cibuildwheelActionPat = re.MustCompile(`^[^/\s]+/cibuildwheel@(?:v?(\d+\.\d+\.\d+)|v?(\d+\.\d+)|([0-9a-f]{40}))$`)
 	// cibuildwheelReqPat matches an exact cibuildwheel requirement in a
 	// command, such as "pipx run cibuildwheel==2.16.2".
 	cibuildwheelReqPat = re.MustCompile(`\bcibuildwheel(?:\[[^\]]*\])?\s*==\s*(\d+\.\d+\.\d+)\b`)
