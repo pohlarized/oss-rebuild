@@ -114,6 +114,17 @@ func (e *DockerBuildExecutor) runBuild(ctx context.Context, handle *scratchHandl
 		env = map[string]string{"AUTH_HEADER": header}
 		buildCmd = append(buildCmd, "--secret", "id=auth_header,env=AUTH_HEADER")
 	}
+	if plan.RequiresArtifactRegistryToken {
+		token, err := e.registryToken(ctx)
+		if err != nil {
+			return nil, errors.Wrap(err, "obtaining artifact registry token")
+		}
+		if env == nil {
+			env = make(map[string]string)
+		}
+		env[build.ArtifactRegistryTokenEnvVar] = token
+		buildCmd = append(buildCmd, "--secret", fmt.Sprintf("id=%s,env=%s", build.ArtifactRegistryTokenSecretID, build.ArtifactRegistryTokenEnvVar))
+	}
 	buildCmd = append(buildCmd, "-")
 	handle.updateStatus(build.BuildStateRunning)
 	remaining := timeout
