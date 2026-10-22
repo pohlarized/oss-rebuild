@@ -18,6 +18,9 @@ type DockerBuildPlan struct {
 	OutputPath string
 	// RequiresAuth indicates whether the plan requires authentication
 	RequiresAuth bool
+	// RequiresArtifactRegistryToken indicates whether the plan's base image
+	// resolves yum packages through the private Artifact Registry mirror.
+	RequiresArtifactRegistryToken bool
 	// Indicates whether to run the container in privileged mode
 	Privileged bool
 	// Layers declare the plan's phase boundaries for timing extraction
