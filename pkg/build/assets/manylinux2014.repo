@@ -1,0 +1,462 @@
+[centos-sclo-rh]
+name=CentOS-7 - SCLo rh
+baseurl=https://oauth2accesstoken:$yum_token@us-east1-yum.pkg.dev/remote/msuozzo-8231083/centos-sclo-rh
+enabled=1
+gpgcheck=0
+repo_gpgcheck=0
+
+[centos-sclo-rh-source]
+name=CentOS-7 - SCLo rh Sources
+baseurl=https://oauth2accesstoken:$yum_token@us-east1-yum.pkg.dev/remote/msuozzo-8231083/centos-sclo-rh-source
+enabled=1
+gpgcheck=0
+repo_gpgcheck=0
+
+[centos-sclo-rh-debuginfo]
+name=CentOS-7 - SCLo rh Debuginfo
+baseurl=https://oauth2accesstoken:$yum_token@us-east1-yum.pkg.dev/remote/msuozzo-8231083/centos-sclo-rh-debuginfo
+enabled=1
+gpgcheck=0
+repo_gpgcheck=0
+
+[c7-0-1406-base]
+name=CentOS-7.0.1406 - Base
+baseurl=https://oauth2accesstoken:$yum_token@us-east1-yum.pkg.dev/remote/msuozzo-8231083/c7-0-1406-base
+enabled=1
+gpgcheck=0
+repo_gpgcheck=0
+
+[c7-0-1406-updates]
+name=CentOS-7.0.1406 - Updates
+baseurl=https://oauth2accesstoken:$yum_token@us-east1-yum.pkg.dev/remote/msuozzo-8231083/c7-0-1406-updates
+enabled=1
+gpgcheck=0
+repo_gpgcheck=0
+
+[c7-0-1406-extras]
+name=CentOS-7.0.1406 - Extras
+baseurl=https://oauth2accesstoken:$yum_token@us-east1-yum.pkg.dev/remote/msuozzo-8231083/c7-0-1406-extras
+enabled=1
+gpgcheck=0
+repo_gpgcheck=0
+
+[c7-0-1406-centosplus]
+name=CentOS-7.0.1406 - CentOSPlus
+baseurl=https://oauth2accesstoken:$yum_token@us-east1-yum.pkg.dev/remote/msuozzo-8231083/c7-0-1406-centosplus
+enabled=1
+gpgcheck=0
+repo_gpgcheck=0
+
+[c7-0-1406-fasttrack]
+name=CentOS-7.0.1406 - Fasttrack
+baseurl=https://oauth2accesstoken:$yum_token@us-east1-yum.pkg.dev/remote/msuozzo-8231083/c7-0-1406-fasttrack
+enabled=1
+gpgcheck=0
+repo_gpgcheck=0
+
+[c7-1-1503-base]
+name=CentOS-7.1.1503 - Base
+baseurl=https://oauth2accesstoken:$yum_token@us-east1-yum.pkg.dev/remote/msuozzo-8231083/c7-1-1503-base
+enabled=1
+gpgcheck=0
+repo_gpgcheck=0
+
+[c7-1-1503-updates]
+name=CentOS-7.1.1503 - Updates
+baseurl=https://oauth2accesstoken:$yum_token@us-east1-yum.pkg.dev/remote/msuozzo-8231083/c7-1-1503-updates
+enabled=1
+gpgcheck=0
+repo_gpgcheck=0
+
+[c7-1-1503-extras]
+name=CentOS-7.1.1503 - Extras
+baseurl=https://oauth2accesstoken:$yum_token@us-east1-yum.pkg.dev/remote/msuozzo-8231083/c7-1-1503-extras
+enabled=1
+gpgcheck=0
+repo_gpgcheck=0
+
+[c7-1-1503-centosplus]
+name=CentOS-7.1.1503 - CentOSPlus
+baseurl=https://oauth2accesstoken:$yum_token@us-east1-yum.pkg.dev/remote/msuozzo-8231083/c7-1-1503-centosplus
+enabled=1
+gpgcheck=0
+repo_gpgcheck=0
+
+[c7-1-1503-fasttrack]
+name=CentOS-7.1.1503 - Fasttrack
+baseurl=https://oauth2accesstoken:$yum_token@us-east1-yum.pkg.dev/remote/msuozzo-8231083/c7-1-1503-fasttrack
+enabled=1
+gpgcheck=0
+repo_gpgcheck=0
+
+[c7-2-1511-base]
+name=CentOS-7.2.1511 - Base
+baseurl=https://oauth2accesstoken:$yum_token@us-east1-yum.pkg.dev/remote/msuozzo-8231083/c7-2-1511-base
+enabled=1
+gpgcheck=0
+repo_gpgcheck=0
+
+[c7-2-1511-updates]
+name=CentOS-7.2.1511 - Updates
+baseurl=https://oauth2accesstoken:$yum_token@us-east1-yum.pkg.dev/remote/msuozzo-8231083/c7-2-1511-updates
+enabled=1
+gpgcheck=0
+repo_gpgcheck=0
+
+[c7-2-1511-extras]
+name=CentOS-7.2.1511 - Extras
+baseurl=https://oauth2accesstoken:$yum_token@us-east1-yum.pkg.dev/remote/msuozzo-8231083/c7-2-1511-extras
+enabled=1
+gpgcheck=0
+repo_gpgcheck=0
+
+[c7-2-1511-centosplus]
+name=CentOS-7.2.1511 - CentOSPlus
+baseurl=https://oauth2accesstoken:$yum_token@us-east1-yum.pkg.dev/remote/msuozzo-8231083/c7-2-1511-centosplus
+enabled=1
+gpgcheck=0
+repo_gpgcheck=0
+
+[c7-2-1511-fasttrack]
+name=CentOS-7.2.1511 - Fasttrack
+baseurl=https://oauth2accesstoken:$yum_token@us-east1-yum.pkg.dev/remote/msuozzo-8231083/c7-2-1511-fasttrack
+enabled=1
+gpgcheck=0
+repo_gpgcheck=0
+
+[c7-3-1611-base]
+name=CentOS-7.3.1611 - Base
+baseurl=https://oauth2accesstoken:$yum_token@us-east1-yum.pkg.dev/remote/msuozzo-8231083/c7-3-1611-base
+enabled=1
+gpgcheck=0
+repo_gpgcheck=0
+
+[c7-3-1611-updates]
+name=CentOS-7.3.1611 - Updates
+baseurl=https://oauth2accesstoken:$yum_token@us-east1-yum.pkg.dev/remote/msuozzo-8231083/c7-3-1611-updates
+enabled=1
+gpgcheck=0
+repo_gpgcheck=0
+
+[c7-3-1611-extras]
+name=CentOS-7.3.1611 - Extras
+baseurl=https://oauth2accesstoken:$yum_token@us-east1-yum.pkg.dev/remote/msuozzo-8231083/c7-3-1611-extras
+enabled=1
+gpgcheck=0
+repo_gpgcheck=0
+
+[c7-3-1611-centosplus]
+name=CentOS-7.3.1611 - CentOSPlus
+baseurl=https://oauth2accesstoken:$yum_token@us-east1-yum.pkg.dev/remote/msuozzo-8231083/c7-3-1611-centosplus
+enabled=1
+gpgcheck=0
+repo_gpgcheck=0
+
+[c7-3-1611-fasttrack]
+name=CentOS-7.3.1611 - Fasttrack
+baseurl=https://oauth2accesstoken:$yum_token@us-east1-yum.pkg.dev/remote/msuozzo-8231083/c7-3-1611-fasttrack
+enabled=1
+gpgcheck=0
+repo_gpgcheck=0
+
+[c7-4-1708-base]
+name=CentOS-7.4.1708 - Base
+baseurl=https://oauth2accesstoken:$yum_token@us-east1-yum.pkg.dev/remote/msuozzo-8231083/c7-4-1708-base
+enabled=1
+gpgcheck=0
+repo_gpgcheck=0
+
+[c7-4-1708-updates]
+name=CentOS-7.4.1708 - Updates
+baseurl=https://oauth2accesstoken:$yum_token@us-east1-yum.pkg.dev/remote/msuozzo-8231083/c7-4-1708-updates
+enabled=1
+gpgcheck=0
+repo_gpgcheck=0
+
+[c7-4-1708-extras]
+name=CentOS-7.4.1708 - Extras
+baseurl=https://oauth2accesstoken:$yum_token@us-east1-yum.pkg.dev/remote/msuozzo-8231083/c7-4-1708-extras
+enabled=1
+gpgcheck=0
+repo_gpgcheck=0
+
+[c7-4-1708-centosplus]
+name=CentOS-7.4.1708 - CentOSPlus
+baseurl=https://oauth2accesstoken:$yum_token@us-east1-yum.pkg.dev/remote/msuozzo-8231083/c7-4-1708-centosplus
+enabled=1
+gpgcheck=0
+repo_gpgcheck=0
+
+[c7-4-1708-fasttrack]
+name=CentOS-7.4.1708 - Fasttrack
+baseurl=https://oauth2accesstoken:$yum_token@us-east1-yum.pkg.dev/remote/msuozzo-8231083/c7-4-1708-fasttrack
+enabled=1
+gpgcheck=0
+repo_gpgcheck=0
+
+[c7-5-1804-base]
+name=CentOS-7.5.1804 - Base
+baseurl=https://oauth2accesstoken:$yum_token@us-east1-yum.pkg.dev/remote/msuozzo-8231083/c7-5-1804-base
+enabled=1
+gpgcheck=0
+repo_gpgcheck=0
+
+[c7-5-1804-updates]
+name=CentOS-7.5.1804 - Updates
+baseurl=https://oauth2accesstoken:$yum_token@us-east1-yum.pkg.dev/remote/msuozzo-8231083/c7-5-1804-updates
+enabled=1
+gpgcheck=0
+repo_gpgcheck=0
+
+[c7-5-1804-extras]
+name=CentOS-7.5.1804 - Extras
+baseurl=https://oauth2accesstoken:$yum_token@us-east1-yum.pkg.dev/remote/msuozzo-8231083/c7-5-1804-extras
+enabled=1
+gpgcheck=0
+repo_gpgcheck=0
+
+[c7-5-1804-centosplus]
+name=CentOS-7.5.1804 - CentOSPlus
+baseurl=https://oauth2accesstoken:$yum_token@us-east1-yum.pkg.dev/remote/msuozzo-8231083/c7-5-1804-centosplus
+enabled=1
+gpgcheck=0
+repo_gpgcheck=0
+
+[c7-5-1804-fasttrack]
+name=CentOS-7.5.1804 - Fasttrack
+baseurl=https://oauth2accesstoken:$yum_token@us-east1-yum.pkg.dev/remote/msuozzo-8231083/c7-5-1804-fasttrack
+enabled=1
+gpgcheck=0
+repo_gpgcheck=0
+
+[c7-6-1810-base]
+name=CentOS-7.6.1810 - Base
+baseurl=https://oauth2accesstoken:$yum_token@us-east1-yum.pkg.dev/remote/msuozzo-8231083/c7-6-1810-base
+enabled=1
+gpgcheck=0
+repo_gpgcheck=0
+
+[c7-6-1810-updates]
+name=CentOS-7.6.1810 - Updates
+baseurl=https://oauth2accesstoken:$yum_token@us-east1-yum.pkg.dev/remote/msuozzo-8231083/c7-6-1810-updates
+enabled=1
+gpgcheck=0
+repo_gpgcheck=0
+
+[c7-6-1810-extras]
+name=CentOS-7.6.1810 - Extras
+baseurl=https://oauth2accesstoken:$yum_token@us-east1-yum.pkg.dev/remote/msuozzo-8231083/c7-6-1810-extras
+enabled=1
+gpgcheck=0
+repo_gpgcheck=0
+
+[c7-6-1810-centosplus]
+name=CentOS-7.6.1810 - CentOSPlus
+baseurl=https://oauth2accesstoken:$yum_token@us-east1-yum.pkg.dev/remote/msuozzo-8231083/c7-6-1810-centosplus
+enabled=1
+gpgcheck=0
+repo_gpgcheck=0
+
+[c7-6-1810-fasttrack]
+name=CentOS-7.6.1810 - Fasttrack
+baseurl=https://oauth2accesstoken:$yum_token@us-east1-yum.pkg.dev/remote/msuozzo-8231083/c7-6-1810-fasttrack
+enabled=1
+gpgcheck=0
+repo_gpgcheck=0
+
+[c7-7-1908-base]
+name=CentOS-7.7.1908 - Base
+baseurl=https://oauth2accesstoken:$yum_token@us-east1-yum.pkg.dev/remote/msuozzo-8231083/c7-7-1908-base
+enabled=1
+gpgcheck=0
+repo_gpgcheck=0
+
+[c7-7-1908-updates]
+name=CentOS-7.7.1908 - Updates
+baseurl=https://oauth2accesstoken:$yum_token@us-east1-yum.pkg.dev/remote/msuozzo-8231083/c7-7-1908-updates
+enabled=1
+gpgcheck=0
+repo_gpgcheck=0
+
+[c7-7-1908-extras]
+name=CentOS-7.7.1908 - Extras
+baseurl=https://oauth2accesstoken:$yum_token@us-east1-yum.pkg.dev/remote/msuozzo-8231083/c7-7-1908-extras
+enabled=1
+gpgcheck=0
+repo_gpgcheck=0
+
+[c7-7-1908-centosplus]
+name=CentOS-7.7.1908 - CentOSPlus
+baseurl=https://oauth2accesstoken:$yum_token@us-east1-yum.pkg.dev/remote/msuozzo-8231083/c7-7-1908-centosplus
+enabled=1
+gpgcheck=0
+repo_gpgcheck=0
+
+[c7-7-1908-fasttrack]
+name=CentOS-7.7.1908 - Fasttrack
+baseurl=https://oauth2accesstoken:$yum_token@us-east1-yum.pkg.dev/remote/msuozzo-8231083/c7-7-1908-fasttrack
+enabled=1
+gpgcheck=0
+repo_gpgcheck=0
+
+[c7-8-2003-base]
+name=CentOS-7.8.2003 - Base
+baseurl=https://oauth2accesstoken:$yum_token@us-east1-yum.pkg.dev/remote/msuozzo-8231083/c7-8-2003-base
+enabled=1
+gpgcheck=0
+repo_gpgcheck=0
+
+[c7-8-2003-updates]
+name=CentOS-7.8.2003 - Updates
+baseurl=https://oauth2accesstoken:$yum_token@us-east1-yum.pkg.dev/remote/msuozzo-8231083/c7-8-2003-updates
+enabled=1
+gpgcheck=0
+repo_gpgcheck=0
+
+[c7-8-2003-extras]
+name=CentOS-7.8.2003 - Extras
+baseurl=https://oauth2accesstoken:$yum_token@us-east1-yum.pkg.dev/remote/msuozzo-8231083/c7-8-2003-extras
+enabled=1
+gpgcheck=0
+repo_gpgcheck=0
+
+[c7-8-2003-centosplus]
+name=CentOS-7.8.2003 - CentOSPlus
+baseurl=https://oauth2accesstoken:$yum_token@us-east1-yum.pkg.dev/remote/msuozzo-8231083/c7-8-2003-centosplus
+enabled=1
+gpgcheck=0
+repo_gpgcheck=0
+
+[c7-8-2003-fasttrack]
+name=CentOS-7.8.2003 - Fasttrack
+baseurl=https://oauth2accesstoken:$yum_token@us-east1-yum.pkg.dev/remote/msuozzo-8231083/c7-8-2003-fasttrack
+enabled=1
+gpgcheck=0
+repo_gpgcheck=0
+
+[c7-9-2009-base]
+name=CentOS-7.9.2009 - Base
+baseurl=https://oauth2accesstoken:$yum_token@us-east1-yum.pkg.dev/remote/msuozzo-8231083/c7-9-2009-base
+enabled=1
+gpgcheck=0
+repo_gpgcheck=0
+
+[c7-9-2009-updates]
+name=CentOS-7.9.2009 - Updates
+baseurl=https://oauth2accesstoken:$yum_token@us-east1-yum.pkg.dev/remote/msuozzo-8231083/c7-9-2009-updates
+enabled=1
+gpgcheck=0
+repo_gpgcheck=0
+
+[c7-9-2009-extras]
+name=CentOS-7.9.2009 - Extras
+baseurl=https://oauth2accesstoken:$yum_token@us-east1-yum.pkg.dev/remote/msuozzo-8231083/c7-9-2009-extras
+enabled=1
+gpgcheck=0
+repo_gpgcheck=0
+
+[c7-9-2009-centosplus]
+name=CentOS-7.9.2009 - CentOSPlus
+baseurl=https://oauth2accesstoken:$yum_token@us-east1-yum.pkg.dev/remote/msuozzo-8231083/c7-9-2009-centosplus
+enabled=1
+gpgcheck=0
+repo_gpgcheck=0
+
+[c7-9-2009-fasttrack]
+name=CentOS-7.9.2009 - Fasttrack
+baseurl=https://oauth2accesstoken:$yum_token@us-east1-yum.pkg.dev/remote/msuozzo-8231083/c7-9-2009-fasttrack
+enabled=1
+gpgcheck=0
+repo_gpgcheck=0
+
+[base-debuginfo]
+name=CentOS-7 - Debuginfo
+baseurl=https://oauth2accesstoken:$yum_token@us-east1-yum.pkg.dev/remote/msuozzo-8231083/base-debuginfo
+enabled=1
+gpgcheck=0
+repo_gpgcheck=0
+
+[centos-kernel]
+name=CentOS LTS Kernels for x86_64
+baseurl=https://oauth2accesstoken:$yum_token@us-east1-yum.pkg.dev/remote/msuozzo-8231083/centos-kernel
+enabled=1
+gpgcheck=0
+repo_gpgcheck=0
+
+[centos-kernel-experimental]
+name=CentOS Experimental Kernels for x86_64
+baseurl=https://oauth2accesstoken:$yum_token@us-east1-yum.pkg.dev/remote/msuozzo-8231083/centos-kernel-experimental
+enabled=1
+gpgcheck=0
+repo_gpgcheck=0
+
+[fasttrack]
+name=CentOS-7 - fasttrack
+baseurl=https://oauth2accesstoken:$yum_token@us-east1-yum.pkg.dev/remote/msuozzo-8231083/fasttrack
+enabled=1
+gpgcheck=0
+repo_gpgcheck=0
+
+[cr]
+name=CentOS-7.9.2009 - cr
+baseurl=https://oauth2accesstoken:$yum_token@us-east1-yum.pkg.dev/remote/msuozzo-8231083/cr
+enabled=1
+gpgcheck=0
+repo_gpgcheck=0
+
+[base]
+name=CentOS-7.9.2009 - Base
+baseurl=https://oauth2accesstoken:$yum_token@us-east1-yum.pkg.dev/remote/msuozzo-8231083/base
+enabled=1
+gpgcheck=0
+repo_gpgcheck=0
+
+[updates]
+name=CentOS-7.9.2009 - Updates
+baseurl=https://oauth2accesstoken:$yum_token@us-east1-yum.pkg.dev/remote/msuozzo-8231083/updates
+enabled=1
+gpgcheck=0
+repo_gpgcheck=0
+
+[extras]
+name=CentOS-7.9.2009 - Extras
+baseurl=https://oauth2accesstoken:$yum_token@us-east1-yum.pkg.dev/remote/msuozzo-8231083/extras
+enabled=1
+gpgcheck=0
+repo_gpgcheck=0
+
+[centosplus]
+name=CentOS-7.9.2009 - Plus
+baseurl=https://oauth2accesstoken:$yum_token@us-east1-yum.pkg.dev/remote/msuozzo-8231083/centosplus
+enabled=1
+gpgcheck=0
+repo_gpgcheck=0
+
+[base-source]
+name=CentOS-7.9.2009 - Base Sources
+baseurl=https://oauth2accesstoken:$yum_token@us-east1-yum.pkg.dev/remote/msuozzo-8231083/base-source
+enabled=1
+gpgcheck=0
+repo_gpgcheck=0
+
+[updates-source]
+name=CentOS-7.9.2009 - Updates Sources
+baseurl=https://oauth2accesstoken:$yum_token@us-east1-yum.pkg.dev/remote/msuozzo-8231083/updates-source
+enabled=1
+gpgcheck=0
+repo_gpgcheck=0
+
+[extras-source]
+name=CentOS-7.9.2009 - Extras Sources
+baseurl=https://oauth2accesstoken:$yum_token@us-east1-yum.pkg.dev/remote/msuozzo-8231083/extras-source
+enabled=1
+gpgcheck=0
+repo_gpgcheck=0
+
+[centosplus-source]
+name=CentOS-7.9.2009 - Plus Sources
+baseurl=https://oauth2accesstoken:$yum_token@us-east1-yum.pkg.dev/remote/msuozzo-8231083/centosplus-source
+enabled=1
+gpgcheck=0
+repo_gpgcheck=0
+

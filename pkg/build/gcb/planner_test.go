@@ -478,7 +478,7 @@ ENTRYPOINT ["/bin/sh","/build"]
 				UseNetworkProxy: false,
 				Resources: build.Resources{
 					BaseImageConfig: build.BaseImageConfig{
-						Default: "quay.io/pypa/manylinux2014_x86_64",
+						Default: "quay.io/pypa/manylinux_2_28_x86_64",
 					},
 					ToolURLs: map[build.ToolType]string{
 						build.TimewarpTool: "https://my-bucket.storage.googleapis.com/timewarp",
@@ -486,7 +486,7 @@ ENTRYPOINT ["/bin/sh","/build"]
 				},
 			},
 			expected: `#syntax=docker/dockerfile:1.10
-FROM quay.io/pypa/manylinux2014_x86_64
+FROM quay.io/pypa/manylinux_2_28_x86_64
 RUN sed 's/^ //' <<'EOF' | sh
  set -eux
  yum install -y 'curl' '/usr/bin/nc'
@@ -542,6 +542,72 @@ ENTRYPOINT ["/bin/sh","/build"]
 				t.Errorf("Dockerfile mismatch (-want +got):\n%s", diff)
 			}
 		})
+	}
+}
+
+func TestMakeDockerfile_Manylinux2014(t *testing.T) {
+	input := rebuild.Input{
+		Target: rebuild.Target{},
+		Strategy: &rebuild.ManualStrategy{
+			Location:   rebuild.Location{Repo: "github.com/example", Ref: "main", Dir: "/src"},
+			Requires:   rebuild.RequiredEnv{SystemDeps: []string{"gcc"}},
+			Deps:       "make deps ...",
+			Build:      "make build ...",
+			OutputPath: "output/foo.tgz",
+		},
+	}
+	opts := build.PlanOptions{
+		Resources: build.Resources{
+			BaseImageConfig: build.BaseImageConfig{Default: "quay.io/pypa/manylinux2014_x86_64"},
+		},
+	}
+	instructions, _ := input.Strategy.GenerateFor(input.Target, rebuild.BuildEnv{TimewarpHost: "localhost:8080"})
+	planner := NewPlanner(PlannerConfig{})
+	result, err := planner.generateDockerfile(instructions, input, opts)
+	if err != nil {
+		t.Fatalf("generateDockerfile failed: %v", err)
+	}
+	if !strings.Contains(result, "mount=type=secret,id=artifact_registry_token") {
+		t.Errorf("Dockerfile missing artifact_registry_token secret mount: %s", result)
+	}
+	if !strings.Contains(result, "rm -f /etc/yum.repos.d/*") {
+		t.Errorf("Dockerfile missing repo cleanup: %s", result)
+	}
+	if !strings.Contains(result, "/etc/yum/vars/yum_token") {
+		t.Errorf("Dockerfile missing yum_token write: %s", result)
+	}
+	if !strings.Contains(result, "/etc/yum.repos.d/oss_rebuild.repo") {
+		t.Errorf("Dockerfile missing oss_rebuild.repo write: %s", result)
+	}
+}
+
+func TestMakeDockerfile_CentOSNotManylinux(t *testing.T) {
+	input := rebuild.Input{
+		Target: rebuild.Target{},
+		Strategy: &rebuild.ManualStrategy{
+			Location:   rebuild.Location{Repo: "github.com/example", Ref: "main", Dir: "/src"},
+			Requires:   rebuild.RequiredEnv{SystemDeps: []string{"gcc"}},
+			Deps:       "make deps ...",
+			Build:      "make build ...",
+			OutputPath: "output/foo.tgz",
+		},
+	}
+	opts := build.PlanOptions{
+		Resources: build.Resources{
+			BaseImageConfig: build.BaseImageConfig{Default: "centos:7"},
+		},
+	}
+	instructions, _ := input.Strategy.GenerateFor(input.Target, rebuild.BuildEnv{TimewarpHost: "localhost:8080"})
+	planner := NewPlanner(PlannerConfig{})
+	result, err := planner.generateDockerfile(instructions, input, opts)
+	if err != nil {
+		t.Fatalf("generateDockerfile failed: %v", err)
+	}
+	if strings.Contains(result, "artifact_registry_token") {
+		t.Errorf("Dockerfile unexpectedly contains artifact_registry_token for centos:7: %s", result)
+	}
+	if strings.Contains(result, "oss_rebuild.repo") {
+		t.Errorf("Dockerfile unexpectedly contains oss_rebuild.repo for centos:7: %s", result)
 	}
 }
 

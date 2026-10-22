@@ -8,6 +8,7 @@ import (
 	"encoding/base64"
 	"fmt"
 	"log"
+	"os"
 	"path"
 	"strings"
 	"time"
@@ -113,6 +114,13 @@ func (e *DockerBuildExecutor) runBuild(ctx context.Context, handle *scratchHandl
 		// staying out of the persisted argv.
 		env = map[string]string{"AUTH_HEADER": header}
 		buildCmd = append(buildCmd, "--secret", "id=auth_header,env=AUTH_HEADER")
+	}
+	if token := os.Getenv(build.ArtifactRegistryTokenEnvVar); token != "" {
+		if env == nil {
+			env = make(map[string]string)
+		}
+		env[build.ArtifactRegistryTokenEnvVar] = token
+		buildCmd = append(buildCmd, "--secret", fmt.Sprintf("id=artifact_registry_token,env=%s", build.ArtifactRegistryTokenEnvVar))
 	}
 	buildCmd = append(buildCmd, "-")
 	handle.updateStatus(build.BuildStateRunning)

@@ -7,6 +7,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"os"
 	"path"
 	"time"
 
@@ -118,6 +119,12 @@ func (e *DockerRunExecutor) runBuild(ctx context.Context, handle *scratchHandle,
 		}
 		env = map[string]string{"AUTH_HEADER": header}
 		argOpts.AuthMode = local.AuthEnvPassthrough
+	}
+	if token := os.Getenv(build.ArtifactRegistryTokenEnvVar); token != "" {
+		if env == nil {
+			env = make(map[string]string)
+		}
+		env[build.ArtifactRegistryTokenEnvVar] = token
 	}
 	if err := e.utilityExec(ctx, append([]string{"docker"}, local.ComposeDockerStartArgs(plan, argOpts)...), env, "starting build container"); err != nil {
 		return nil, err
