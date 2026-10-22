@@ -28,6 +28,7 @@ type DockerRunPlanner struct {
 // dockerRunScriptArgs holds template arguments for the phase scripts
 type dockerRunScriptArgs struct {
 	Inst           rebuild.Instructions
+	BaseImage      string
 	OS             build.OS
 	PackageManager build.PackageManagerCommands
 	UseTimewarp    bool
@@ -43,10 +44,15 @@ type dockerRunScriptArgs struct {
 // NOTE: RPM images install netcat by path since it is packaged as nc on EL6 and nmap-ncat on EL7+.
 var dockerRunPhaseTpls = template.Must(
 	template.New("docker run phases").Funcs(template.FuncMap{
-		"list": func(items ...string) []string { return items },
+		"list":                   func(items ...string) []string { return items },
+		"manylinux2014RepoSetup": build.Manylinux2014RepoSetupScript,
+		"isManylinux2014":        build.IsManylinux2014,
 	}).Parse(
 		textwrap.Dedent(`
 			{{- define "setup" -}}
+			{{- if isManylinux2014 .BaseImage}}
+			{{manylinux2014RepoSetup}}
+			{{- end}}
 			{{- if .UseTimewarp}}
 			{{- if eq .OS "alpine"}}
 			{{.PackageManager.InstallCommand (list "curl")}}
@@ -118,6 +124,7 @@ func (p *DockerRunPlanner) GeneratePlan(ctx context.Context, input rebuild.Input
 	}
 	args := dockerRunScriptArgs{
 		Inst:           instructions,
+		BaseImage:      image,
 		OS:             os,
 		PackageManager: build.GetPackageManagerCommands(os),
 		UseTimewarp:    opts.UseTimewarp,
@@ -133,11 +140,12 @@ func (p *DockerRunPlanner) GeneratePlan(ctx context.Context, input rebuild.Input
 		return strings.TrimSpace(buf.String()), nil
 	}
 	plan := &DockerRunPlan{
-		Image:        image,
-		WorkingDir:   "/workspace",
-		OutputPath:   DockerRunOutputPath,
-		RequiresAuth: len(opts.Resources.ToolAuthRequired) > 0,
-		Privileged:   instructions.Requires.Privileged,
+		Image:                         image,
+		WorkingDir:                    "/workspace",
+		OutputPath:                    DockerRunOutputPath,
+		RequiresAuth:                  len(opts.Resources.ToolAuthRequired) > 0,
+		RequiresArtifactRegistryToken: build.IsManylinux2014(image),
+		Privileged:                    instructions.Requires.Privileged,
 	}
 	if plan.Setup, err = phase(rebuild.PhaseSetup); err != nil {
 		return nil, err

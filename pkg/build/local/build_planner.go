@@ -33,15 +33,20 @@ type dockerBuildContainerArgs struct {
 // NOTE: Layer mappings must be kept in sync with dockerfileLayers.
 var dockerBuildDockerfileTpl = template.Must(
 	template.New("docker build dockerfile").Funcs(template.FuncMap{
-		"indent": func(s string) string { return strings.ReplaceAll(s, "\n", "\n ") },
-		"join":   func(sep string, s []string) string { return strings.Join(s, sep) },
-		"list":   func(items ...string) []string { return items },
+		"indent":                 func(s string) string { return strings.ReplaceAll(s, "\n", "\n ") },
+		"join":                   func(sep string, s []string) string { return strings.Join(s, sep) },
+		"list":                   func(items ...string) []string { return items },
+		"manylinux2014RepoSetup": build.Manylinux2014RepoSetupScript,
+		"isManylinux2014":        build.IsManylinux2014,
 	}).Parse(
 		textwrap.Dedent(`
 			#syntax=docker/dockerfile:1.10
 			FROM {{.BaseImage}}
-			RUN {{if .TimewarpAuth}}--mount=type=secret,id=auth_header {{end}} sed 's/^ //' <<'EOF' | sh
+			RUN {{if isManylinux2014 .BaseImage}}--mount=type=secret,id=artifact_registry_token,required=false {{end}}{{if .TimewarpAuth}}--mount=type=secret,id=auth_header {{end}}sed 's/^ //' <<'EOF' | sh
 			 set -eux
+			{{- if isManylinux2014 .BaseImage}}
+			 {{manylinux2014RepoSetup | indent}}
+			{{- end}}
 			{{- if .UseTimewarp}}
 			 {{- if eq .OS "alpine"}}
 			 {{.PackageManager.InstallCommand (list "curl")}}
@@ -118,10 +123,11 @@ func (p *DockerBuildPlanner) GeneratePlan(ctx context.Context, input rebuild.Inp
 		return nil, errors.Wrap(err, "failed to generate Dockerfile")
 	}
 	plan := &DockerBuildPlan{
-		Dockerfile:   dockerfile,
-		OutputPath:   path.Join("/out", path.Base(instructions.OutputPath)),
-		RequiresAuth: len(opts.Resources.ToolAuthRequired) > 0,
-		Privileged:   instructions.Requires.Privileged,
+		Dockerfile:                    dockerfile,
+		OutputPath:                    path.Join("/out", path.Base(instructions.OutputPath)),
+		RequiresAuth:                  len(opts.Resources.ToolAuthRequired) > 0,
+		RequiresArtifactRegistryToken: build.IsManylinux2014(opts.Resources.BaseImageConfig.SelectFor(input, instructions.Requires)),
+		Privileged:                    instructions.Requires.Privileged,
 	}
 	// The declared layers gate the executor's post-build observation.
 	if opts.RecordTimings {

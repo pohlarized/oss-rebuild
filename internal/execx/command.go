@@ -8,6 +8,7 @@ package execx
 import (
 	"context"
 	"io"
+	"os"
 	"os/exec"
 	"syscall"
 	"time"
@@ -23,6 +24,9 @@ type CommandOptions struct {
 	Dir string
 	// StopGrace makes cancellation signal termination and wait before killing.
 	StopGrace time.Duration
+	// Env lists KEY=VALUE pairs appended to the inherited process environment.
+	// Use it for values that must reach the command without appearing in its argv.
+	Env []string
 }
 
 // CommandExecutor abstracts command execution for better testability
@@ -65,6 +69,9 @@ func command(ctx context.Context, opts CommandOptions, name string, args ...stri
 		cmd.Stderr = opts.Output
 	}
 	cmd.Dir = opts.Dir
+	if len(opts.Env) > 0 {
+		cmd.Env = append(os.Environ(), opts.Env...)
+	}
 	if opts.StopGrace > 0 {
 		cmd.Cancel = func() error { return cmd.Process.Signal(syscall.SIGTERM) }
 		cmd.WaitDelay = opts.StopGrace

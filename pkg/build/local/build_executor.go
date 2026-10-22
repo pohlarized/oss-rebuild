@@ -38,6 +38,7 @@ type DockerBuildExecutor struct {
 	retainImage      bool
 	tempDirBase      string
 	allowPrivileged  bool
+	registryToken    build.ArtifactRegistryTokenSource
 	memoryLimit      string
 }
 
@@ -68,6 +69,10 @@ func NewDockerBuildExecutor(config DockerBuildExecutorConfig) (*DockerBuildExecu
 	if tempBase == "" {
 		tempBase = os.TempDir()
 	}
+	registryToken := config.ArtifactRegistryToken
+	if registryToken == nil {
+		registryToken = build.ADCArtifactRegistryTokenSource()
+	}
 	// Check if docker is available
 	dockerCmd := "docker"
 	if _, err := cmdExecutor.LookPath(dockerCmd); err != nil {
@@ -86,6 +91,7 @@ func NewDockerBuildExecutor(config DockerBuildExecutorConfig) (*DockerBuildExecu
 		retainImage:      config.RetainImage,
 		tempDirBase:      tempBase,
 		allowPrivileged:  config.AllowPrivileged,
+		registryToken:    registryToken,
 		memoryLimit:      config.MemoryLimit,
 	}, nil
 }
@@ -102,6 +108,9 @@ type DockerBuildExecutorConfig struct {
 	TempDirBase      string // Base directory for temp files, if empty uses os.TempDir()
 	AllowPrivileged  bool   // If true, allow privileged builds
 	MemoryLimit      string // If provided, sets a memory limit on the builder (ex 512m or 1g)
+	// ArtifactRegistryToken supplies the yum mirror token for manylinux2014
+	// plans. Defaults to Application Default Credentials.
+	ArtifactRegistryToken build.ArtifactRegistryTokenSource
 }
 
 // Start implements build.Executor.
@@ -212,6 +221,21 @@ func (e *DockerBuildExecutor) executeBuild(ctx context.Context, handle *localHan
 	if e.memoryLimit != "" {
 		buildArgs = append(buildArgs, "--memory", e.memoryLimit)
 	}
+	// The secret reads the token from the docker CLI process environment so
+	// that the value stays out of the argv.
+	var buildEnv []string
+	if plan.RequiresArtifactRegistryToken {
+		token, err := e.registryToken(ctx)
+		if err != nil {
+			handle.updateStatus(build.BuildStateCancelled)
+			handle.setResult(build.Result{
+				Error: errors.Wrap(err, "obtaining artifact registry token"),
+			})
+			return
+		}
+		buildArgs = append(buildArgs, "--secret", fmt.Sprintf("id=%s,env=%s", build.ArtifactRegistryTokenSecretID, build.ArtifactRegistryTokenEnvVar))
+		buildEnv = []string{build.ArtifactRegistryTokenEnvVar + "=" + token}
+	}
 	if plan.ContextDir != "" {
 		buildArgs = append(buildArgs, "-f-", plan.ContextDir)
 	} else {
@@ -221,6 +245,7 @@ func (e *DockerBuildExecutor) executeBuild(ctx context.Context, handle *localHan
 	err := e.cmdExecutor.Execute(ctx, execx.CommandOptions{
 		Input:  strings.NewReader(plan.Dockerfile),
 		Output: multiWriter,
+		Env:    buildEnv,
 	}, e.dockerCmd, buildArgs...)
 	if err != nil {
 		handle.updateStatus(build.BuildStateCompleted)

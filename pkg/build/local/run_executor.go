@@ -37,6 +37,7 @@ type DockerRunExecutor struct {
 	retainContainer  bool
 	tempDirBase      string
 	authCallback     AuthCallback
+	registryToken    build.ArtifactRegistryTokenSource
 	allowPrivileged  bool
 	memoryLimit      string
 }
@@ -64,6 +65,10 @@ func NewDockerRunExecutor(config DockerRunExecutorConfig) (*DockerRunExecutor, e
 	if tempBase == "" {
 		tempBase = os.TempDir()
 	}
+	registryToken := config.ArtifactRegistryToken
+	if registryToken == nil {
+		registryToken = build.ADCArtifactRegistryTokenSource()
+	}
 	// Check if docker is available
 	dockerCmd := "docker"
 	if _, err := cmdExecutor.LookPath(dockerCmd); err != nil {
@@ -80,6 +85,7 @@ func NewDockerRunExecutor(config DockerRunExecutorConfig) (*DockerRunExecutor, e
 		retainContainer:  config.RetainContainer,
 		tempDirBase:      tempBase,
 		authCallback:     config.AuthCallback,
+		registryToken:    registryToken,
 		allowPrivileged:  config.AllowPrivileged,
 		memoryLimit:      config.MemoryLimit,
 	}, nil
@@ -97,8 +103,11 @@ type DockerRunExecutorConfig struct {
 	RetainContainer  bool         // If true, retain containers stopped instead of removing them
 	TempDirBase      string       // Base directory for temp files, if empty uses os.TempDir()
 	AuthCallback     AuthCallback // Optional callback to generate auth headers when needed
-	AllowPrivileged  bool         // If true, allow privileged builds
-	MemoryLimit      string       // If provided, sets a memory limit on the container (ex 512m or 1g)
+	// ArtifactRegistryToken supplies the yum mirror token for manylinux2014
+	// plans. Defaults to Application Default Credentials.
+	ArtifactRegistryToken build.ArtifactRegistryTokenSource
+	AllowPrivileged       bool   // If true, allow privileged builds
+	MemoryLimit           string // If provided, sets a memory limit on the container (ex 512m or 1g)
 }
 
 // Start implements build.Executor
@@ -229,6 +238,20 @@ func (e *DockerRunExecutor) executeBuild(ctx context.Context, handle *localHandl
 		}
 		argOpts.AuthMode, argOpts.AuthValue = AuthInline, authHeader
 	}
+	// The token reaches the container through the start command's process
+	// environment (see composeContainerArgs). Exec'd phases inherit it.
+	var startEnv []string
+	if plan.RequiresArtifactRegistryToken {
+		token, err := e.registryToken(ctx)
+		if err != nil {
+			handle.updateStatus(build.BuildStateCancelled)
+			handle.setResult(build.Result{
+				Error: errors.Wrap(err, "obtaining artifact registry token"),
+			})
+			return
+		}
+		startEnv = []string{build.ArtifactRegistryTokenEnvVar + "=" + token}
+	}
 	handle.updateStatus(build.BuildStateRunning)
 	outbuf := &bytes.Buffer{}
 	runWriter := io.MultiWriter(handle, outbuf)
@@ -238,7 +261,7 @@ func (e *DockerRunExecutor) executeBuild(ctx context.Context, handle *localHandl
 	// Setup's span opens before the container start so it absorbs the image
 	// pull and container create, mirroring the build executor's buildx clock.
 	phaseStart := time.Now()
-	buildErr := e.cmdExecutor.Execute(ctx, execx.CommandOptions{Output: idBuf}, e.dockerCmd, ComposeDockerStartArgs(plan, argOpts)...)
+	buildErr := e.cmdExecutor.Execute(ctx, execx.CommandOptions{Output: idBuf, Env: startEnv}, e.dockerCmd, ComposeDockerStartArgs(plan, argOpts)...)
 	elapsed := rebuild.BuildTimings{}
 	if buildErr != nil {
 		buildErr = errors.Wrap(buildErr, "starting build container")

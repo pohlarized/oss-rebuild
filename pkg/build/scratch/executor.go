@@ -99,9 +99,12 @@ type ExecutorConfig struct {
 	PollInterval     time.Duration                         // Steady-state gap between exec op polls
 	DefaultTimeout   time.Duration                         // Bounds builds whose Options.Timeout is unset, defaults to 1h
 	AuthHeader       func(context.Context) (string, error) // Supplies AUTH_HEADER for plans that fetch auth-required tools
-	AllowPrivileged  bool                                  // If true, allow privileged builds
-	RetainContainer  bool                                  // If true, retain build containers stopped and don't remove them
-	MaxArtifactBytes int64                                 // Caps artifact retrieval, defaults to 256MiB
+	// ArtifactRegistryToken supplies the yum mirror token for manylinux2014
+	// plans. Defaults to Application Default Credentials.
+	ArtifactRegistryToken build.ArtifactRegistryTokenSource
+	AllowPrivileged       bool  // If true, allow privileged builds
+	RetainContainer       bool  // If true, retain build containers stopped and don't remove them
+	MaxArtifactBytes      int64 // Caps artifact retrieval, defaults to 256MiB
 }
 
 // executor is the variant-independent core of the scratch executors: build
@@ -124,6 +127,7 @@ type executor struct {
 	pollInterval     time.Duration
 	defaultTimeout   time.Duration
 	authHeader       func(context.Context) (string, error)
+	registryToken    build.ArtifactRegistryTokenSource
 	allowPrivileged  bool
 	retainContainer  bool
 	maxArtifactBytes int64
@@ -146,6 +150,10 @@ func newExecutor(config ExecutorConfig) (*executor, error) {
 		return nil, errors.Errorf("WorkDir must be absolute, got %q", workDir)
 	}
 	maxParallel := max(config.MaxParallel, 1)
+	registryToken := config.ArtifactRegistryToken
+	if registryToken == nil {
+		registryToken = build.ADCArtifactRegistryTokenSource()
+	}
 	return &executor{
 		scratchID:        config.ScratchID,
 		stubs:            config.Stubs,
@@ -157,6 +165,7 @@ func newExecutor(config ExecutorConfig) (*executor, error) {
 		pollInterval:     config.PollInterval,
 		defaultTimeout:   cmp.Or(config.DefaultTimeout, defaultBuildTimeout),
 		authHeader:       config.AuthHeader,
+		registryToken:    registryToken,
 		allowPrivileged:  config.AllowPrivileged,
 		retainContainer:  config.RetainContainer,
 		maxArtifactBytes: cmp.Or(config.MaxArtifactBytes, defaultMaxArtifactBytes),
