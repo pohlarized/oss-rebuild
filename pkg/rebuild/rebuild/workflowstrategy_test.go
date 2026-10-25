@@ -361,8 +361,10 @@ func TestBuiltinCommand_GitCheckout(t *testing.T) {
 			want: `git clone https://github.com/test/repo .
 git checkout --force 'deadbeef'
 GIT_TERMINAL_PROMPT=0 git clone https://github.com/madler/zlib 'src/zlib'
+GIT_TERMINAL_PROMPT=0 git -C 'src/zlib' fetch origin '1111111111111111111111111111111111111111'
 git -C 'src/zlib' checkout --force '1111111111111111111111111111111111111111'
 GIT_TERMINAL_PROMPT=0 git clone https://github.com/example/foo 'vendor/foo'
+GIT_TERMINAL_PROMPT=0 git -C 'vendor/foo' fetch origin '2222222222222222222222222222222222222222'
 git -C 'vendor/foo' checkout --force '2222222222222222222222222222222222222222'`,
 		},
 	}

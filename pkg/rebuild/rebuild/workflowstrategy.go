@@ -91,6 +91,9 @@ func init() {
 	flow.Tools.MustRegister(&flow.Tool{
 		Name: "git-checkout",
 		Steps: []flow.Step{{
+			// NOTE: Fetching each submodule ref by hash mirrors git submodule update
+			// and relies on Git protocol v2 to retrieve commits unreachable from any
+			// advertised branch or tag.
 			Runs: textwrap.Dedent(`
 				{{ if not .BuildEnv.HasRepo -}}
 				git clone {{ if eq .With.crlf "true" }}-c core.autocrlf=true {{ end }}{{.Location.Repo}} .
@@ -100,6 +103,7 @@ func init() {
 				git checkout --force '{{.Location.Ref}}'
 				{{- range .Location.Submodules }}
 				GIT_TERMINAL_PROMPT=0 git clone {{.Repo}} '{{.Dir}}'
+				GIT_TERMINAL_PROMPT=0 git -C '{{.Dir}}' fetch origin '{{.Ref}}'
 				git -C '{{.Dir}}' checkout --force '{{.Ref}}'
 				{{- end }}`)[1:],
 			Needs: []string{"git"},
