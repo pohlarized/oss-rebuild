@@ -73,27 +73,38 @@ func TestInferRequirements(t *testing.T) {
 	modern := "Metadata-Version: 2.1\nName: x\nLicense-File: LICENSE\n"
 	tests := []struct {
 		name     string
+		version  string
 		wheel    string
 		metadata string
 		want     []string
 	}{
-		{"bdist_wheel without License-File", bdist, "Metadata-Version: 2.1\nName: x\n", []string{"wheel==0.40.0", "setuptools<=56.2.0"}},
-		{"bdist_wheel with Platform UNKNOWN", bdist, modern + "Platform: UNKNOWN\n", []string{"wheel==0.40.0", "setuptools<=57.5.0"}},
-		{"bdist_wheel with modern metadata", bdist, modern, []string{"wheel==0.40.0", "setuptools<=67.7.2"}},
-		{"setuptools generator pins exactly", "Wheel-Version: 1.0\nGenerator: setuptools (70.0.0)\n", modern, []string{"setuptools==70.0.0"}},
-		{"flit generator takes no setuptools", "Wheel-Version: 1.0\nGenerator: flit 3.9.0\n", "Metadata-Version: 2.1\nName: x\n", []string{"flit_core==3.9.0", "flit==3.9.0"}},
-		{"pdm-backend generator pins pdm-backend", "Wheel-Version: 1.0\nGenerator: pdm-backend (2.4.4)\n", modern, []string{"pdm-backend==2.4.4"}},
-		{"uv generator pins uv-build", "Wheel-Version: 1.0\nGenerator: uv 0.10.0\n", modern, []string{"uv-build==0.10.0"}},
-		{"meson generator without version", "Wheel-Version: 1.0\nGenerator: meson\n", modern, []string{}},
-		{"meson generator with parenthesized version", "Wheel-Version: 1.0\nGenerator: meson (0.17.1)\n", modern, []string{"meson-python==0.17.1"}},
-		{"meson generator with bare version", "Wheel-Version: 1.0\nGenerator: meson 0.17.1\n", modern, []string{"meson-python==0.17.1"}},
-		{"scikit-build-core generator with parenthesized version", "Wheel-Version: 1.0\nGenerator: scikit-build-core (0.10.7)\n", modern, []string{"scikit-build-core==0.10.7"}},
-		{"scikit-build-core generator with bare version", "Wheel-Version: 1.0\nGenerator: scikit-build-core 0.11.6\n", modern, []string{"scikit-build-core==0.11.6"}},
+		{name: "bdist_wheel without License-File", wheel: bdist, metadata: "Metadata-Version: 2.1\nName: x\n", want: []string{"wheel==0.40.0", "setuptools<=56.2.0"}},
+		{name: "bdist_wheel with Platform UNKNOWN", wheel: bdist, metadata: modern + "Platform: UNKNOWN\n", want: []string{"wheel==0.40.0", "setuptools<=57.5.0"}},
+		{name: "bdist_wheel with modern metadata", wheel: bdist, metadata: modern, want: []string{"wheel==0.40.0", "setuptools<=67.7.2"}},
+		{name: "SetuptoolsGeneratorPinsExactly", wheel: "Wheel-Version: 1.0\nGenerator: setuptools (84.0.0)\n", metadata: modern, want: []string{"setuptools==84.0.0"}},
+		{name: "SetuptoolsGeneratorAtMinVersionPinned", wheel: "Wheel-Version: 1.0\nGenerator: setuptools (70.1.0)\n", metadata: modern, want: []string{"setuptools==70.1.0"}},
+		{name: "SetuptoolsGeneratorBelowMinVersionUnpinned", wheel: "Wheel-Version: 1.0\nGenerator: setuptools (69.5.1)\n", metadata: modern, want: []string{"setuptools"}},
+		{name: "SetuptoolsGeneratorSelfVersionLeakUnpinned", version: "1.9.2", wheel: "Wheel-Version: 1.0\nGenerator: setuptools (1.9.2)\n", metadata: modern, want: []string{"setuptools"}},
+		{name: "SetuptoolsGeneratorPrereleaseSelfVersionLeakUnpinned", version: "1.0rc1", wheel: "Wheel-Version: 1.0\nGenerator: setuptools (1.0rc1)\n", metadata: modern, want: []string{"setuptools"}},
+		{name: "SetuptoolsGeneratorNonNumericLeakUnpinned", version: "80.9.0", wheel: "Wheel-Version: 1.0\nGenerator: setuptools (80.9.0.dev0)\n", metadata: modern, want: []string{"setuptools"}},
+		{name: "SetuptoolsGeneratorCoincidentTargetVersionUnpinned", version: "80.9.0", wheel: "Wheel-Version: 1.0\nGenerator: setuptools (80.9.0)\n", metadata: modern, want: []string{"setuptools"}},
+		{name: "flit generator takes no setuptools", wheel: "Wheel-Version: 1.0\nGenerator: flit 3.9.0\n", metadata: "Metadata-Version: 2.1\nName: x\n", want: []string{"flit_core==3.9.0", "flit==3.9.0"}},
+		{name: "pdm-backend generator pins pdm-backend", wheel: "Wheel-Version: 1.0\nGenerator: pdm-backend (2.4.4)\n", metadata: modern, want: []string{"pdm-backend==2.4.4"}},
+		{name: "uv generator pins uv-build", wheel: "Wheel-Version: 1.0\nGenerator: uv 0.10.0\n", metadata: modern, want: []string{"uv-build==0.10.0"}},
+		{name: "meson generator without version", wheel: "Wheel-Version: 1.0\nGenerator: meson\n", metadata: modern, want: []string{}},
+		{name: "meson generator with parenthesized version", wheel: "Wheel-Version: 1.0\nGenerator: meson (0.17.1)\n", metadata: modern, want: []string{"meson-python==0.17.1"}},
+		{name: "meson generator with bare version", wheel: "Wheel-Version: 1.0\nGenerator: meson 0.17.1\n", metadata: modern, want: []string{"meson-python==0.17.1"}},
+		{name: "scikit-build-core generator with parenthesized version", wheel: "Wheel-Version: 1.0\nGenerator: scikit-build-core (0.10.7)\n", metadata: modern, want: []string{"scikit-build-core==0.10.7"}},
+		{name: "scikit-build-core generator with bare version", wheel: "Wheel-Version: 1.0\nGenerator: scikit-build-core 0.11.6\n", metadata: modern, want: []string{"scikit-build-core==0.11.6"}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			zr := wheelZipReader(t, "testpkg", "1.0", tt.wheel, tt.metadata)
-			got, err := inferRequirements("testpkg", "1.0", zr)
+			version := tt.version
+			if version == "" {
+				version = "1.0"
+			}
+			zr := wheelZipReader(t, "testpkg", version, tt.wheel, tt.metadata)
+			got, err := inferRequirements("testpkg", version, zr)
 			if err != nil {
 				t.Fatalf("inferRequirements() error = %v", err)
 			}
@@ -254,6 +265,18 @@ func TestMergeRequirements(t *testing.T) {
 			reqs:      []string{"setuptools==57.5.0"},
 			buildReqs: []string{"setuptools>=40"},
 			want:      []string{"setuptools==57.5.0"},
+		},
+		{
+			name:      "BuildSpecReplacesBarePlaceholder",
+			reqs:      []string{"setuptools"},
+			buildReqs: []string{"setuptools>=64,<72"},
+			want:      []string{"setuptools>=64,<72"},
+		},
+		{
+			name:      "MarkerVariantsReplaceBarePlaceholderAndKeepSiblings",
+			reqs:      []string{"setuptools"},
+			buildReqs: []string{`setuptools>=64; python_version>="3.8"`, `setuptools<60; python_version<"3.8"`},
+			want:      []string{`setuptools>=64; python_version>="3.8"`, `setuptools<60; python_version<"3.8"`},
 		},
 		{
 			name:      "repeats within buildReqs collapse",
@@ -699,7 +722,7 @@ func TestGetGenerator(t *testing.T) {
 		{wheel: "Wheel-Version: 1.0\nGenerator: maturin (1.7.4)\nRoot-Is-Purelib: false\n", want: []string{"maturin==1.7.4"}},
 		{wheel: "Wheel-Version: 1.0\nRoot-Is-Purelib: true\nTag: py3-none-any\n", wantErr: true},
 	} {
-		got, err := getGenerator([]byte(tc.wheel), nil)
+		got, err := getGenerator("1.0", []byte(tc.wheel), nil)
 		if (err != nil) != tc.wantErr || !cmp.Equal(got, tc.want) {
 			t.Errorf("getGenerator(%q) = %v, %v, want %v (error %t)", tc.wheel, got, err, tc.want, tc.wantErr)
 		}

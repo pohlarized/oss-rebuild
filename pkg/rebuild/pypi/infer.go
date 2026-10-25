@@ -272,7 +272,7 @@ func inferRequirements(name, version string, zr *zip.Reader) ([]string, error) {
 	if err != nil {
 		return nil, errors.Wrapf(err, "[INTERNAL] Failed to extract upstream %s", metadataPath)
 	}
-	reqs, err := getGenerator(wheel, metadata)
+	reqs, err := getGenerator(version, wheel, metadata)
 	if err != nil {
 		return nil, errors.Wrapf(err, "[INTERNAL] Failed to get upstream generator")
 	}
@@ -388,26 +388,38 @@ func implicitRequirements(reqs []string) []string {
 }
 
 // mergeRequirements appends the buildReqs entries whose package does not
-// already appear in reqs, also collapsing repeats within buildReqs itself.
-// Entries of one package with different environment markers are all kept, as
-// each takes effect in a different environment and the installer evaluates
-// them against the build interpreter.
+// already appear in reqs, also collapsing repeats within buildReqs itself. A
+// bare package name in reqs acts as a placeholder and is replaced by the first
+// matching buildReqs entry. Entries of one package with different environment
+// markers are all kept, as each takes effect in a different environment and
+// the installer evaluates them against the build interpreter.
 // https://packaging.python.org/en/latest/specifications/dependency-specifiers/#environment-markers
 func mergeRequirements(reqs, buildReqs []string) []string {
+	reqs = slices.Clone(reqs)
+	placeholder := make(map[string]int)
 	pinned := make(map[string]bool)
-	for _, req := range reqs {
-		pinned[requirementName(req)] = true
+	for i, req := range reqs {
+		name := requirementName(req)
+		if name == req {
+			placeholder[name] = i
+			continue
+		}
+		pinned[name] = true
 	}
 	seen := make(map[string]bool)
 	for _, newReq := range buildReqs {
 		pkg := requirementName(newReq)
-		if pkg == "" || pinned[pkg] {
+		key := pkg + ";" + requirementMarker(newReq)
+		if pkg == "" || pinned[pkg] || seen[key] {
 			continue
 		}
-		if key := pkg + ";" + requirementMarker(newReq); !seen[key] {
-			reqs = append(reqs, newReq)
-			seen[key] = true
+		seen[key] = true
+		if i, ok := placeholder[pkg]; ok {
+			reqs[i] = newReq
+			delete(placeholder, pkg)
+			continue
 		}
+		reqs = append(reqs, newReq)
 	}
 	return reqs
 }
@@ -836,8 +848,14 @@ func pythonTag(filename string, reqs []string) string {
 	return ""
 }
 
+// setuptools 70.1.0 integrated bdist_wheel and was the first release to write
+// "Generator: setuptools (<version>)". Earlier releases wrote "bdist_wheel".
+// https://setuptools.pypa.io/en/latest/history.html#v70-1-0
+const setuptoolsGeneratorMinVersion = "70.1.0"
+
 var bdistWheelPat = re.MustCompile(`^Generator: bdist_wheel \(([\d\.]+)\)`)
-var setuptoolsPat = re.MustCompile(`^Generator: setuptools \(([\d\.]+)\)`)
+var setuptoolsPat = re.MustCompile(`^Generator: setuptools \(([^)\s]+)\)`)
+var numericVersionPat = re.MustCompile(`^\d+(?:\.\d+)*$`)
 var flitPat = re.MustCompile(`^Generator: flit ([\d\.]+)`)
 var hatchlingPat = re.MustCompile(`^Generator: hatchling ([\d\.]+)`)
 
@@ -853,7 +871,7 @@ var maturinPat = re.MustCompile(`^Generator: maturin \(([\d\.]+)\)`)
 // getGenerator returns the pins identifying the wheel's build backend from its
 // Generator line. bdist_wheel names the wheel packaging tool, not setuptools,
 // whose version is instead bounded by the metadata era.
-func getGenerator(wheel, metadata []byte) (reqs []string, err error) {
+func getGenerator(targetVersion string, wheel, metadata []byte) (reqs []string, err error) {
 	for line := range bytes.Lines(wheel) {
 		sep := bytes.IndexRune(line, ':')
 		if sep == -1 {
@@ -865,7 +883,18 @@ func getGenerator(wheel, metadata []byte) (reqs []string, err error) {
 			if matches := bdistWheelPat.FindSubmatch(line); matches != nil {
 				return []string{"wheel==" + string(matches[1]), setuptoolsCeiling(metadata)}, nil
 			} else if matches := setuptoolsPat.FindSubmatch(line); matches != nil {
-				return []string{"setuptools==" + string(matches[1])}, nil
+				stamped := string(matches[1])
+				// NOTE: pyproject_hooks _BackendPathFinder drops context.name when
+				// backend-path is set, causing importlib.metadata.version("setuptools")
+				// to read the project's own .egg-info version. Real setuptools releases
+				// since 70.1.0 use dotted numeric versions, so any stamp matching the
+				// target version, carrying non-numeric segments, or predating 70.1.0 is
+				// invalid. Emit a bare "setuptools" placeholder that mergeRequirements
+				// replaces from project build files or leaves for timewarp resolution.
+				if pypiresolver.SameVersion(stamped, targetVersion) || !numericVersionPat.MatchString(stamped) || versionx.ApproxCompare(stamped, setuptoolsGeneratorMinVersion) < 0 {
+					return []string{"setuptools"}, nil
+				}
+				return []string{"setuptools==" + stamped}, nil
 			} else if matches := flitPat.FindSubmatch(line); matches != nil {
 				return []string{"flit_core==" + string(matches[1]), "flit==" + string(matches[1])}, nil
 			} else if matches := hatchlingPat.FindSubmatch(line); matches != nil {
