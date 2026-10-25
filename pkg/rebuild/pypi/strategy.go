@@ -332,11 +332,16 @@ var toolkit = []*flow.Tool{
 		Name: "pypi/setup-venv/manylinux",
 		Steps: []flow.Step{{
 			// TODO: Support Python 2.7 (requires virtualenv instead of standard library venv).
+			// NOTE: Candidates are ordered from most to least specific. Concrete ABI tags
+			// (e.g. cp313t) require an exact match so a missing build fails here instead
+			// of producing the wrong wheel tag later. ABI-agnostic tags (empty, abi3,
+			// none) may match any ABI for pythonTag, and abi3 or generic py3/py2.py3-none
+			// wheels may fall back to any CPython 3 interpreter.
 			Runs: textwrap.Dedent(`
 				for py in
 				{{- if and .With.pythonTag .With.abiTag}} /opt/python/{{.With.pythonTag}}-{{.With.abiTag}}/bin/python{{end -}}
-				{{- if .With.pythonTag}} /opt/python/{{.With.pythonTag}}-*/bin/python{{end -}}
-				{{- if or (not .With.pythonTag) (eq .With.abiTag "abi3")}} /opt/python/cp3*/bin/python{{end -}}
+				{{- if and .With.pythonTag (or (not .With.abiTag) (eq .With.abiTag "abi3" "none"))}} /opt/python/{{.With.pythonTag}}-*/bin/python{{end -}}
+				{{- if or (not .With.pythonTag) (eq .With.abiTag "abi3") (and (eq .With.abiTag "none") (eq .With.pythonTag "py3" "py2.py3"))}} /opt/python/cp3*/bin/python{{end -}}
 				; do [ -x "$py" ] && break; done
 				"$py" -m venv {{.With.path}}`)[1:],
 		}},

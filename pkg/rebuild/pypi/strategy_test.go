@@ -332,7 +332,7 @@ func TestPlatformWheelBuild(t *testing.T) {
 			rebuild.Instructions{
 				Location: defaultLocation,
 				Source:   "git checkout --force 'the_ref'",
-				Deps: `for py in /opt/python/cp310-cp310/bin/python /opt/python/cp310-*/bin/python; do [ -x "$py" ] && break; done
+				Deps: `for py in /opt/python/cp310-cp310/bin/python; do [ -x "$py" ] && break; done
 "$py" -m venv /deps
 /deps/bin/pip install build wheel
 /deps/bin/pip install 'req_1'
@@ -366,7 +366,7 @@ rm -rf the_dir/dist/repaired`,
 			rebuild.Instructions{
 				Location: defaultLocation,
 				Source:   "git checkout --force 'the_ref'",
-				Deps: `for py in /opt/python/cp310-cp310/bin/python /opt/python/cp310-*/bin/python; do [ -x "$py" ] && break; done
+				Deps: `for py in /opt/python/cp310-cp310/bin/python; do [ -x "$py" ] && break; done
 "$py" -m venv /deps
 /deps/bin/pip install build wheel
 /deps/bin/pip install 'req_1<='\''1.2.3'\'''`,
@@ -398,7 +398,7 @@ rm -rf the_dir/dist/repaired`,
 			rebuild.Instructions{
 				Location: defaultLocation,
 				Source:   "git checkout --force 'the_ref'",
-				Deps: `for py in /opt/python/cp310-cp310/bin/python /opt/python/cp310-*/bin/python; do [ -x "$py" ] && break; done
+				Deps: `for py in /opt/python/cp310-cp310/bin/python; do [ -x "$py" ] && break; done
 "$py" -m venv /deps
 /deps/bin/pip install build wheel`,
 				Build: `/deps/bin/python3 -m build --wheel -n the_dir
@@ -430,7 +430,7 @@ rm -rf the_dir/dist/repaired`,
 			rebuild.Instructions{
 				Location: defaultLocation,
 				Source:   "git checkout --force 'the_ref'",
-				Deps: `for py in /opt/python/cp312-cp312/bin/python /opt/python/cp312-*/bin/python; do [ -x "$py" ] && break; done
+				Deps: `for py in /opt/python/cp312-cp312/bin/python; do [ -x "$py" ] && break; done
 "$py" -m venv /deps
 /deps/bin/pip install build wheel`,
 				Build: `/deps/bin/python3 -m build --wheel -n the_dir
@@ -462,7 +462,7 @@ rm -rf the_dir/dist/repaired`,
 			rebuild.Instructions{
 				Location: defaultLocation,
 				Source:   "git checkout --force 'the_ref'",
-				Deps: `for py in /opt/python/cp310-cp310/bin/python /opt/python/cp310-*/bin/python; do [ -x "$py" ] && break; done
+				Deps: `for py in /opt/python/cp310-cp310/bin/python; do [ -x "$py" ] && break; done
 "$py" -m venv /deps
 /deps/bin/pip install build wheel`,
 				Build: `mkdir -p $(dirname /project)
@@ -556,7 +556,7 @@ rm -rf dist/repaired`,
 			rebuild.Instructions{
 				Location: defaultLocation,
 				Source:   "git checkout --force 'the_ref'",
-				Deps: `for py in /opt/python/cp312-cp312/bin/python /opt/python/cp312-*/bin/python; do [ -x "$py" ] && break; done
+				Deps: `for py in /opt/python/cp312-cp312/bin/python; do [ -x "$py" ] && break; done
 "$py" -m venv /deps
 /deps/bin/pip install build wheel`,
 				Build: `/deps/bin/python3 -m build --wheel -n the_dir
@@ -587,7 +587,7 @@ rm -rf the_dir/dist/repaired`,
 			rebuild.Instructions{
 				Location: defaultLocation,
 				Source:   "git checkout --force 'the_ref'",
-				Deps: `for py in /opt/python/cp310-cp310/bin/python /opt/python/cp310-*/bin/python; do [ -x "$py" ] && break; done
+				Deps: `for py in /opt/python/cp310-cp310/bin/python; do [ -x "$py" ] && break; done
 "$py" -m venv /deps
 /deps/bin/pip install build wheel`,
 				Build: `/deps/bin/python3 -m build --wheel -n the_dir
@@ -618,7 +618,7 @@ rm -rf the_dir/dist/repaired`,
 			rebuild.Instructions{
 				Location: defaultLocation,
 				Source:   "git checkout --force 'the_ref'",
-				Deps: `for py in /opt/python/cp310-cp310/bin/python /opt/python/cp310-*/bin/python; do [ -x "$py" ] && break; done
+				Deps: `for py in /opt/python/cp310-cp310/bin/python; do [ -x "$py" ] && break; done
 "$py" -m venv /deps
 /deps/bin/pip install build wheel`,
 				Build: `/deps/bin/python3 -m build --wheel -n the_dir
@@ -649,7 +649,7 @@ rm -rf the_dir/dist/repaired`,
 			rebuild.Instructions{
 				Location: defaultLocation,
 				Source:   "git checkout --force 'the_ref'",
-				Deps: `for py in /opt/python/cp38-cp38/bin/python /opt/python/cp38-*/bin/python; do [ -x "$py" ] && break; done
+				Deps: `for py in /opt/python/cp38-cp38/bin/python; do [ -x "$py" ] && break; done
 "$py" -m venv /deps
 /deps/bin/pip install build wheel`,
 				Build: `/deps/bin/python3 -m build --wheel -n the_dir
@@ -731,6 +731,99 @@ rm -rf the_dir/dist/repaired`,
 			},
 		},
 		{
+			"ABINone",
+			&PlatformWheelBuild{
+				Location:    defaultLocation,
+				PythonTag:   "py3",
+				ABITag:      "none",
+				PlatformTag: "manylinux_2_28_x86_64",
+			},
+			rebuild.Instructions{
+				Location: defaultLocation,
+				Source:   "git checkout --force 'the_ref'",
+				Deps: `for py in /opt/python/py3-none/bin/python /opt/python/py3-*/bin/python /opt/python/cp3*/bin/python; do [ -x "$py" ] && break; done
+"$py" -m venv /deps
+/deps/bin/pip install build wheel`,
+				Build: `/deps/bin/python3 -m build --wheel -n the_dir
+mkdir -p the_dir/dist/repaired
+AUDITWHEEL="/deps/bin/auditwheel"
+if [ ! -x "$AUDITWHEEL" ]; then
+  AUDITWHEEL="auditwheel"
+fi
+$AUDITWHEEL repair the_dir/dist/*.whl --plat manylinux_2_28_x86_64 --only-plat -w the_dir/dist/repaired/
+rm -f the_dir/dist/*.whl
+mv the_dir/dist/repaired/*.whl the_dir/dist/the_artifact
+rm -rf the_dir/dist/repaired`,
+				Requires: rebuild.RequiredEnv{
+					BaseImage:  "quay.io/pypa/manylinux_2_28_x86_64",
+					SystemDeps: []string{"git"},
+				},
+				OutputPath: "the_dir/dist/the_artifact",
+			},
+		},
+		{
+			"CPythonABINone",
+			&PlatformWheelBuild{
+				Location:    defaultLocation,
+				PythonTag:   "cp312",
+				ABITag:      "none",
+				PlatformTag: "manylinux_2_28_x86_64",
+			},
+			rebuild.Instructions{
+				Location: defaultLocation,
+				Source:   "git checkout --force 'the_ref'",
+				Deps: `for py in /opt/python/cp312-none/bin/python /opt/python/cp312-*/bin/python; do [ -x "$py" ] && break; done
+"$py" -m venv /deps
+/deps/bin/pip install build wheel`,
+				Build: `/deps/bin/python3 -m build --wheel -n the_dir
+mkdir -p the_dir/dist/repaired
+AUDITWHEEL="/deps/bin/auditwheel"
+if [ ! -x "$AUDITWHEEL" ]; then
+  AUDITWHEEL="auditwheel"
+fi
+$AUDITWHEEL repair the_dir/dist/*.whl --plat manylinux_2_28_x86_64 --only-plat -w the_dir/dist/repaired/
+rm -f the_dir/dist/*.whl
+mv the_dir/dist/repaired/*.whl the_dir/dist/the_artifact
+rm -rf the_dir/dist/repaired`,
+				Requires: rebuild.RequiredEnv{
+					BaseImage:  "quay.io/pypa/manylinux_2_28_x86_64",
+					SystemDeps: []string{"git"},
+				},
+				OutputPath: "the_dir/dist/the_artifact",
+			},
+		},
+		{
+			"FreeThreaded",
+			&PlatformWheelBuild{
+				Location:    defaultLocation,
+				PythonTag:   "cp313",
+				ABITag:      "cp313t",
+				PlatformTag: "manylinux_2_28_x86_64",
+			},
+			rebuild.Instructions{
+				Location: defaultLocation,
+				Source:   "git checkout --force 'the_ref'",
+				Deps: `for py in /opt/python/cp313-cp313t/bin/python; do [ -x "$py" ] && break; done
+"$py" -m venv /deps
+/deps/bin/pip install build wheel`,
+				Build: `/deps/bin/python3 -m build --wheel -n the_dir
+mkdir -p the_dir/dist/repaired
+AUDITWHEEL="/deps/bin/auditwheel"
+if [ ! -x "$AUDITWHEEL" ]; then
+  AUDITWHEEL="auditwheel"
+fi
+$AUDITWHEEL repair the_dir/dist/*.whl --plat manylinux_2_28_x86_64 --only-plat -w the_dir/dist/repaired/
+rm -f the_dir/dist/*.whl
+mv the_dir/dist/repaired/*.whl the_dir/dist/the_artifact
+rm -rf the_dir/dist/repaired`,
+				Requires: rebuild.RequiredEnv{
+					BaseImage:  "quay.io/pypa/manylinux_2_28_x86_64",
+					SystemDeps: []string{"git"},
+				},
+				OutputPath: "the_dir/dist/the_artifact",
+			},
+		},
+		{
 			"WithSystemDeps",
 			&PlatformWheelBuild{
 				Location:    defaultLocation,
@@ -742,7 +835,7 @@ rm -rf the_dir/dist/repaired`,
 			rebuild.Instructions{
 				Location: defaultLocation,
 				Source:   "git checkout --force 'the_ref'",
-				Deps: `for py in /opt/python/cp310-cp310/bin/python /opt/python/cp310-*/bin/python; do [ -x "$py" ] && break; done
+				Deps: `for py in /opt/python/cp310-cp310/bin/python; do [ -x "$py" ] && break; done
 "$py" -m venv /deps
 /deps/bin/pip install build wheel`,
 				Build: `/deps/bin/python3 -m build --wheel -n the_dir
@@ -775,7 +868,7 @@ rm -rf the_dir/dist/repaired`,
 			rebuild.Instructions{
 				Location: defaultLocation,
 				Source:   "git checkout --force 'the_ref'",
-				Deps: `for py in /opt/python/cp310-cp310/bin/python /opt/python/cp310-*/bin/python; do [ -x "$py" ] && break; done
+				Deps: `for py in /opt/python/cp310-cp310/bin/python; do [ -x "$py" ] && break; done
 "$py" -m venv /tmp/build-env-v9c0qwj_
 /tmp/build-env-v9c0qwj_/bin/pip install build wheel
 /tmp/build-env-v9c0qwj_/bin/pip install 'numpy==2.0.0'`,
@@ -809,7 +902,7 @@ rm -rf the_dir/dist/repaired`,
 			rebuild.Instructions{
 				Location: defaultLocation,
 				Source:   "git checkout --force 'the_ref'",
-				Deps: `for py in /opt/python/cp312-cp312/bin/python /opt/python/cp312-*/bin/python; do [ -x "$py" ] && break; done
+				Deps: `for py in /opt/python/cp312-cp312/bin/python; do [ -x "$py" ] && break; done
 "$py" -m venv /deps
 /deps/bin/pip install build wheel
 /deps/bin/pip install 'setuptools-rust==1.9.0'
@@ -848,7 +941,7 @@ rm -rf the_dir/dist/repaired`,
 			rebuild.Instructions{
 				Location: defaultLocation,
 				Source:   "git checkout --force 'the_ref'",
-				Deps: `for py in /opt/python/cp312-cp312/bin/python /opt/python/cp312-*/bin/python; do [ -x "$py" ] && break; done
+				Deps: `for py in /opt/python/cp312-cp312/bin/python; do [ -x "$py" ] && break; done
 "$py" -m venv /deps
 /deps/bin/pip install build wheel
 /deps/bin/pip install 'setuptools-rust==1.9.0'
@@ -888,7 +981,7 @@ rm -rf the_dir/dist/repaired`,
 			rebuild.Instructions{
 				Location: defaultLocation,
 				Source:   "git checkout --force 'the_ref'",
-				Deps: `for py in /opt/python/cp312-cp312/bin/python /opt/python/cp312-*/bin/python; do [ -x "$py" ] && break; done
+				Deps: `for py in /opt/python/cp312-cp312/bin/python; do [ -x "$py" ] && break; done
 "$py" -m venv /deps
 /deps/bin/pip install build wheel
 /deps/bin/pip install 'maturin==1.7.4'
