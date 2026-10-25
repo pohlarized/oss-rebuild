@@ -31,13 +31,15 @@
 // `inferELFSystemDeps` recovers the upstream system package specifiers in four
 // steps:
 //  1. Candidate collection (`isBundledLibPath`): Scans `.so` and `.so.<ver>`
-//     ELF entries (up to `maxELFFileSize`) in the wheel zip archive. Each ELF
-//     file's own name is taken from `DT_SONAME` when present, falling back to
-//     its archive filename. For bundled files in `<pkg>.libs/` or
+//     entries in the wheel zip archive. For shared objects outside `.libs/`,
+//     the archive filename is always recorded in `internalLibs` so intra-wheel
+//     links are ignored even when the file exceeds `maxELFFileSize` (such as
+//     `libtorch_cpu.so`). Entries up to `maxELFFileSize` are parsed as ELF:
+//     each file's own name is taken from `DT_SONAME` when present, falling
+//     back to its archive filename. For bundled files in `<pkg>.libs/` or
 //     `.libs_<pkg>/`, that name is added as a candidate. For shared objects
-//     outside `.libs/`, both the archive filename and `DT_SONAME` are recorded
-//     in `internalLibs` so intra-wheel links are ignored. Every ELF file's
-//     `DT_NEEDED` imports are also collected as candidates.
+//     outside `.libs/`, the `DT_SONAME` is also recorded in `internalLibs`.
+//     Every parsed ELF file's `DT_NEEDED` imports are collected as candidates.
 //  2. Unbundling and SONAME normalization (`unbundledSoname`): Strips the
 //     `auditwheel` `-<8+ hex>` hash suffix (`auditwheelHashPat`) and collapses
 //     3-component `major.minor.patch` symlink target versions back to the
@@ -204,14 +206,32 @@ func formatLibraryDeps(soname string, libc platform.LibcImpl) []string {
 // objects in a wheel archive and formats them for the target libc's package
 // manager.
 func inferELFSystemDeps(zr *zip.Reader, libc platform.LibcImpl) ([]string, error) {
+	return inferELFSystemDepsLimited(zr, libc, maxELFFileSize)
+}
+
+// inferELFSystemDepsLimited is inferELFSystemDeps with an explicit per-entry
+// size limit.
+// NOTE: Only tests pass a limit other than maxELFFileSize so the oversized
+// path can be exercised without multi-hundred-MiB fixtures.
+func inferELFSystemDepsLimited(zr *zip.Reader, libc platform.LibcImpl, maxFileSize uint64) ([]string, error) {
 	var rawCandidates []string
 	internalLibs := make(map[string]bool)
 	for _, f := range zr.File {
-		if f.FileInfo().IsDir() || f.UncompressedSize64 > maxELFFileSize {
+		if f.FileInfo().IsDir() {
 			continue
 		}
 		baseName := path.Base(f.Name)
 		if !sharedLibNamePat.MatchString(strings.ToLower(baseName)) {
+			continue
+		}
+		bundled := isBundledLibPath(f.Name)
+		// Record wheel-internal shared library filenames before checking the
+		// size limit so oversized libraries (such as libtorch_cpu.so) are still
+		// recognized as internal when sibling modules link against them.
+		if !bundled {
+			internalLibs[unbundledSoname(baseName)] = true
+		}
+		if f.UncompressedSize64 > maxFileSize {
 			continue
 		}
 		rc, err := f.Open()
@@ -231,10 +251,9 @@ func inferELFSystemDeps(zr *zip.Reader, libc platform.LibcImpl) ([]string, error
 		if sonames, err := ef.DynString(elf.DT_SONAME); err == nil && len(sonames) > 0 && sonames[0] != "" {
 			cand = sonames[0]
 		}
-		if isBundledLibPath(f.Name) {
+		if bundled {
 			rawCandidates = append(rawCandidates, cand)
 		} else {
-			internalLibs[unbundledSoname(baseName)] = true
 			internalLibs[unbundledSoname(cand)] = true
 		}
 		if imported, err := ef.ImportedLibraries(); err == nil {

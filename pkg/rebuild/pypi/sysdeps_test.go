@@ -222,3 +222,59 @@ func TestInferELFSystemDeps(t *testing.T) {
 		})
 	}
 }
+
+func TestInferELFSystemDepsOversizedInternalLib(t *testing.T) {
+	const testLimit = 1024
+	oversizedCPULib := append(createTestELF([]string{"libignored_from_oversized.so.1"}, "libtorch_cpu.so"), make([]byte, testLimit)...)
+	oversizedCUDALib := append(createTestELF(nil, "libtorch_cuda.so"), make([]byte, testLimit)...)
+	extELF := createTestELF([]string{"libc.so.6", "libtorch_cpu.so", "libtorch_cuda.so", "libz.so.1"}, "")
+	entries := []archive.ZipEntry{
+		{
+			FileHeader: &zip.FileHeader{Name: "torch/lib/libtorch_cpu.so"},
+			Body:       oversizedCPULib,
+		},
+		{
+			FileHeader: &zip.FileHeader{Name: "torch/lib/libtorch_cuda.so"},
+			Body:       oversizedCUDALib,
+		},
+		{
+			FileHeader: &zip.FileHeader{Name: "torch/_C.cpython-310-x86_64-linux-gnu.so"},
+			Body:       extELF,
+		},
+	}
+	buf := must(archivetest.ZipFile(entries))
+	zr := must(zip.NewReader(bytes.NewReader(buf.Bytes()), int64(buf.Len())))
+	tests := []struct {
+		name string
+		libc platform.LibcImpl
+		want []string
+	}{
+		{
+			name: "GlibcManylinux",
+			libc: platform.Glibc,
+			want: []string{
+				"libz.so.1()(64bit)",
+				"/usr/lib64/libz.so",
+			},
+		},
+		{
+			name: "MuslMusllinux",
+			libc: platform.Musl,
+			want: []string{
+				"so:libz.so.1",
+				"pc:libz",
+			},
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := inferELFSystemDepsLimited(zr, tc.libc, testLimit)
+			if err != nil {
+				t.Fatalf("inferELFSystemDepsLimited() unexpected error: %v", err)
+			}
+			if diff := cmp.Diff(tc.want, got); diff != "" {
+				t.Errorf("inferELFSystemDepsLimited() diff (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
