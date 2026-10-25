@@ -1281,3 +1281,55 @@ func TestMaturinTakesTarget(t *testing.T) {
 		}
 	}
 }
+
+func TestInferStrategyPDMRunSetuptools(t *testing.T) {
+	repo := must(gitxtest.CreateRepoFromYAML(`commits:
+  - id: release-commit
+    tag: v0.8.1
+    files:
+      pyproject.toml: |
+        [project]
+        name = "editdistance"
+        version = "0.8.1"
+        [build-system]
+        requires = ["pdm-backend", "cython"]
+        build-backend = "pdm.backend"
+        [tool.pdm.build]
+        run-setuptools = true
+`, nil))
+	filename := "editdistance-0.8.1-cp312-cp312-musllinux_1_1_x86_64.whl"
+	wheelURL := "https://files.pythonhosted.org/" + filename
+	wheelBuf := must(archivetest.ZipFile([]archive.ZipEntry{
+		{
+			FileHeader: &zip.FileHeader{Name: "editdistance-0.8.1.dist-info/WHEEL"},
+			Body:       []byte("Wheel-Version: 1.0\nGenerator: pdm-backend (2.1.8)\nRoot-Is-Purelib: false\nTag: cp312-cp312-musllinux_1_1_x86_64\n"),
+		},
+		{
+			FileHeader: &zip.FileHeader{Name: "editdistance-0.8.1.dist-info/METADATA"},
+			Body:       []byte("Metadata-Version: 2.1\nName: editdistance\nVersion: 0.8.1\n"),
+		},
+	}))
+	releaseJSON := fmt.Sprintf(`{"info":{"name":"editdistance","version":"0.8.1"},"urls":[{"filename":%q,"url":%q,"size":%d,"upload_time_iso_8601":"2026-05-01T00:00:00Z"}]}`, filename, wheelURL, wheelBuf.Len())
+	mux := rebuild.RegistryMux{PyPI: pypireg.HTTPRegistry{Client: &httpxtest.MockClient{
+		Calls: []httpxtest.Call{
+			{URL: "https://pypi.org/pypi/editdistance/0.8.1/json", Response: &http.Response{StatusCode: 200, Body: httpxtest.Body(releaseJSON)}},
+			{URL: "https://pypi.org/pypi/editdistance/0.8.1/json", Response: &http.Response{StatusCode: 200, Body: httpxtest.Body(releaseJSON)}},
+			{URL: wheelURL, Response: &http.Response{StatusCode: 200, Body: io.NopCloser(bytes.NewReader(wheelBuf.Bytes()))}},
+		},
+		URLValidator: httpxtest.NewURLValidator(t),
+	}}}
+	rcfg := &rebuild.RepoConfig{Repo: gitx.Repo{Repository: repo.Repository, Storer: repo.Storer}, URI: "https://github.com/roy-ht/editdistance"}
+	target := rebuild.Target{Ecosystem: rebuild.PyPI, Package: "editdistance", Version: "0.8.1", Artifact: filename}
+	strat, err := Rebuilder{}.InferStrategy(context.Background(), target, mux, rcfg, nil)
+	if err != nil {
+		t.Fatalf("InferStrategy() unexpected error: %v", err)
+	}
+	got, ok := strat.(*PlatformWheelBuild)
+	if !ok {
+		t.Fatalf("InferStrategy() returned %T, want *PlatformWheelBuild", strat)
+	}
+	want := []string{"pdm-backend==2.1.8", "cython", "setuptools"}
+	if diff := cmp.Diff(want, got.Requirements); diff != "" {
+		t.Errorf("PlatformWheelBuild.Requirements diff (-want +got):\n%s", diff)
+	}
+}

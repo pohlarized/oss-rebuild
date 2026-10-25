@@ -45,10 +45,16 @@ type PyProject struct {
 	Project     ProjectMetadata `toml:"project"`
 	BuildSystem struct {
 		Requires []string `toml:"requires"`
+		Backend  string   `toml:"build-backend"`
 	} `toml:"build-system"`
 	Tool struct {
 		Poetry       ProjectMetadata    `toml:"poetry"`
 		Cibuildwheel CibuildwheelConfig `toml:"cibuildwheel"`
+		PDM          struct {
+			// NOTE: pdm-pep517 before 1.0 used a string here (build = "build.py").
+			// Decoding into any keeps such files parseable.
+			Build any `toml:"build"`
+		} `toml:"pdm"`
 	} `toml:"tool"`
 }
 
@@ -115,6 +121,15 @@ func extractPyProjectRequirements(ctx context.Context, f *git2.File) ([]string, 
 		// them? To even know which package we're looking at would require parsing the dependency spec.
 		// https://packaging.python.org/en/latest/specifications/dependency-specifiers/#dependency-specifiers
 		reqs = append(reqs, strings.TrimSpace(r))
+	}
+	// NOTE: With run-setuptools enabled, pdm-backend runs setup.py through
+	// setuptools and requests setuptools from get_requires_for_build_wheel
+	// instead of [build-system].requires. The "pdm." prefix matches both
+	// pdm.backend and the legacy pdm.pep517.api, which also honors the flag.
+	// https://backend.pdm-project.org/build_config/#run-setuptools
+	pdmBuild, _ := pyProject.Tool.PDM.Build.(map[string]any)
+	if runSetuptools, _ := pdmBuild["run-setuptools"].(bool); runSetuptools && strings.HasPrefix(pyProject.BuildSystem.Backend, "pdm.") {
+		reqs = append(reqs, "setuptools")
 	}
 	log.Println("Added these reqs from pyproject.toml: " + strings.Join(reqs, ", "))
 	return reqs, nil

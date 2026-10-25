@@ -99,6 +99,66 @@ commits:
 `,
 			wantErr: true,
 		},
+		{
+			name: "PDMRunSetuptoolsEnabled",
+			repoYAML: `
+commits:
+  - id: initial-commit
+    files:
+      pyproject.toml: |
+        [build-system]
+        requires = ["pdm-backend", "cython"]
+        build-backend = "pdm.backend"
+        [tool.pdm.build]
+        run-setuptools = true
+`,
+			want: []string{"pdm-backend", "cython", "setuptools"},
+		},
+		{
+			name: "PDMRunSetuptoolsDisabled",
+			repoYAML: `
+commits:
+  - id: initial-commit
+    files:
+      pyproject.toml: |
+        [build-system]
+        requires = ["pdm-backend", "cython"]
+        build-backend = "pdm.backend"
+        [tool.pdm.build]
+        run-setuptools = false
+`,
+			want: []string{"pdm-backend", "cython"},
+		},
+		{
+			name: "PDMRunSetuptoolsIgnoredForOtherBackend",
+			repoYAML: `
+commits:
+  - id: initial-commit
+    files:
+      pyproject.toml: |
+        [build-system]
+        requires = ["hatchling"]
+        build-backend = "hatchling.build"
+        [tool.pdm.build]
+        run-setuptools = true
+`,
+			want: []string{"hatchling"},
+		},
+		{
+			name: "PDMLegacyStringBuildField",
+			repoYAML: `
+commits:
+  - id: initial-commit
+    files:
+      pyproject.toml: |
+        [build-system]
+        requires = ["pdm-pep517"]
+        build-backend = "pdm.pep517.api"
+        [tool.pdm]
+        build = "build.py"
+`,
+			want: []string{"pdm-pep517"},
+		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			repo := must(gitxtest.CreateRepoFromYAML(tc.repoYAML, nil))
