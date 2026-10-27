@@ -51,9 +51,12 @@ type PyProject struct {
 		BackendPath  any      `toml:"backend-path"`
 	} `toml:"build-system"`
 	Tool struct {
-		Poetry       ProjectMetadata    `toml:"poetry"`
-		Cibuildwheel CibuildwheelConfig `toml:"cibuildwheel"`
-		Hatch        struct {
+		Poetry       ProjectMetadata     `toml:"poetry"`
+		Cibuildwheel *CibuildwheelConfig `toml:"cibuildwheel"`
+		Maturin      struct {
+			ManifestPath string `toml:"manifest-path"`
+		} `toml:"maturin"`
+		Hatch struct {
 			Build struct {
 				Hooks   map[string]hatchHookConfig `toml:"hooks"`
 				Targets struct {
@@ -237,4 +240,23 @@ func ExtractHatchWheelHooks(tree *git2.Tree, dir string) ([]HatchWheelHook, erro
 		hooks = append(hooks, h)
 	}
 	return hooks, nil
+}
+
+// MaturinManifestPath returns the "manifest-path" setting under "[tool.maturin]"
+// in f. A decode error returns ("", nil) so inference treats a malformed file
+// as a rejected candidate while failing on read errors.
+func MaturinManifestPath(f *git2.File) (string, error) {
+	if f == nil {
+		return "", nil
+	}
+	pyProject, err := ReadPyProject(f)
+	if err != nil {
+		// NOTE: Malformed syntax rejects this candidate rather than aborting inference.
+		var decodeErr *toml.DecodeError
+		if errors.As(err, &decodeErr) {
+			return "", nil
+		}
+		return "", err
+	}
+	return strings.TrimSpace(pyProject.Tool.Maturin.ManifestPath), nil
 }

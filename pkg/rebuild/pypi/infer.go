@@ -570,12 +570,12 @@ func inferBuild(ctx context.Context, t rebuild.Target, mux rebuild.RegistryMux, 
 				return nil, errors.Wrap(err, "inferring rust toolchain version")
 			}
 		}
-		cibwSpecs, usesCibw, err := extractCibuildwheelSpecs(tree)
+		cibwSpecs, workflowUsesCibw, err := extractCibuildwheelSpecs(tree)
 		if err != nil {
 			return nil, errors.Wrap(err, "extracting cibuildwheel specs")
 		}
 		ws := readWheelELF(zr)
-		buildRoot, err := inferBuildRootFromSources(ws, tree, usesCibw)
+		buildRoot, err := inferBuildRootFromSources(ws, tree, workflowUsesCibw)
 		if err != nil {
 			return nil, errors.Wrap(err, "inferring build root")
 		}
@@ -585,6 +585,22 @@ func inferBuild(ctx context.Context, t rebuild.Target, mux rebuild.RegistryMux, 
 		}
 		reqs = mergeRequirements(reqs, wheelEnv.reqs)
 		sysDeps = mergeSystemDeps(sysDeps, wheelEnv.sysDeps)
+		var maturin *MaturinOptions
+		if usesMaturin(reqs) {
+			hasCibw, err := usesCibuildwheel(tree, dir)
+			if err != nil {
+				return nil, errors.Wrap(err, "detecting cibuildwheel configuration")
+			}
+			// cibuildwheel drives maturin through PEP 517 and repairs with auditwheel,
+			// which platform-wheel reproduces. Only direct maturin releases use maturin-wheel.
+			if !hasCibw {
+				features, err := inferMaturinFeatures(tree, dir, tags)
+				if err != nil {
+					return nil, errors.Wrap(err, "inferring maturin features")
+				}
+				maturin = &MaturinOptions{Features: features}
+			}
+		}
 		return &PlatformWheelBuild{
 			Location: rebuild.Location{
 				Repo:       rcfg.URI,
@@ -603,6 +619,7 @@ func inferBuild(ctx context.Context, t rebuild.Target, mux rebuild.RegistryMux, 
 			BuildRoot:    buildRoot,
 			BuildEnvPath: inferBuildEnvPathFromSources(ws),
 			RustVersion:  rustVersion,
+			Maturin:      maturin,
 		}, nil
 	} else {
 		return &PureWheelBuild{

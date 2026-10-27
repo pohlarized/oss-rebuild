@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/google/oss-rebuild/internal/semver"
+	pypiresolver "github.com/google/oss-rebuild/pkg/rebuild/pypi/parsing"
 	"github.com/google/oss-rebuild/pkg/rebuild/pypi/platform"
 	"github.com/google/oss-rebuild/pkg/registry/cratesio"
 	"github.com/msuozzo/go-git2"
@@ -53,6 +54,8 @@ var (
 	// validRustVersionPat requires a fully pinned 3-component release before shell
 	// interpolation. A major.minor channel would let rustup pick the newest patch at build time.
 	validRustVersionPat = re.MustCompile(`^\d+\.\d+\.\d+$`)
+	// validMaturinFeaturePat validates a Cargo feature identifier before shell interpolation.
+	validMaturinFeaturePat = re.MustCompile(`^[A-Za-z0-9_+-]+(/[A-Za-z0-9_+-]+)?$`)
 )
 
 // usesRust reports whether the wheel build requires a Rust toolchain.
@@ -61,6 +64,11 @@ func usesRust(reqs []string, tree *git2.Tree, dir string) (bool, error) {
 		return true, nil
 	}
 	return hasSetuptoolsRustSetupPy(tree, dir)
+}
+
+// usesMaturin reports whether the wheel was built with maturin.
+func usesMaturin(reqs []string) bool {
+	return hasRequirement(reqs, "maturin")
 }
 
 func hasSetuptoolsRustSetupPy(tree *git2.Tree, dir string) (bool, error) {
@@ -80,6 +88,166 @@ func hasSetuptoolsRustSetupPy(tree *git2.Tree, dir string) (bool, error) {
 		return false, errors.Wrapf(err, "reading %s", setupPath)
 	}
 	return strings.Contains(content, "setuptools_rust"), nil
+}
+
+// inferMaturinFeatures inspects Cargo.toml when building an abi3 wheel with maturin
+// and selects a single non-default Cargo feature that enables pyo3's abi3 mode.
+// It prefers a feature matching the wheel's target Python tag (pyo3/abi3-py<XY>),
+// then a version-less pyo3/abi3 feature, or a single unambiguous pyo3/abi3-* feature,
+// and never enables multiple abi3 features simultaneously.
+func inferMaturinFeatures(tree *git2.Tree, dir string, tags WheelTags) ([]string, error) {
+	if !strings.Contains(tags.ABI, "abi3") {
+		return nil, nil
+	}
+	cf, err := findCargoManifest(tree, dir)
+	if err != nil || cf == nil {
+		return nil, err
+	}
+	content, err := cf.Contents()
+	if err != nil {
+		return nil, errors.Wrapf(err, "reading %s", cf.Name)
+	}
+	cargoToml, err := cratesio.ParseCargoTOML(content)
+	if err != nil || len(cargoToml.Features) == 0 {
+		return nil, nil
+	}
+	for _, dep := range cargoToml.Features["default"] {
+		if isPyO3ABI3FeatureDep(dep, tags.ABI) {
+			return nil, nil
+		}
+		for _, subDep := range cargoToml.Features[dep] {
+			if isPyO3ABI3FeatureDep(subDep, tags.ABI) {
+				return nil, nil
+			}
+		}
+	}
+	targetPySuffix := targetPyO3VersionSuffix(tags.Python)
+	var exactMatches, unversionedMatches, allMatches []string
+	for feat, deps := range cargoToml.Features {
+		if feat == "default" {
+			continue
+		}
+		var matched, exact, unversioned bool
+		for _, dep := range deps {
+			suffix, ok := parsePyO3ABI3FeatureDep(dep, tags.ABI)
+			if !ok {
+				continue
+			}
+			matched = true
+			if targetPySuffix != "" && suffix == targetPySuffix {
+				exact = true
+			} else if suffix == "" {
+				unversioned = true
+			}
+		}
+		if matched {
+			allMatches = append(allMatches, feat)
+		}
+		if exact {
+			exactMatches = append(exactMatches, feat)
+		} else if unversioned {
+			unversionedMatches = append(unversionedMatches, feat)
+		}
+	}
+	for _, candidates := range [][]string{exactMatches, unversionedMatches, allMatches} {
+		if len(candidates) == 1 {
+			return candidates, nil
+		}
+	}
+	return nil, nil
+}
+
+// findCargoManifest locates the Cargo.toml file for a Python package in tree at dir.
+// It checks [tool.maturin] manifest-path in pyproject.toml first, then Cargo.toml in dir,
+// and finally searches for a single Cargo.toml in the subtree under dir.
+func findCargoManifest(tree *git2.Tree, dir string) (*git2.File, error) {
+	if tree == nil {
+		return nil, nil
+	}
+	pyprojPath := path.Join(dir, "pyproject.toml")
+	pyf, err := tree.File(pyprojPath)
+	if err != nil && !errors.Is(err, git2.ErrFileNotFound) {
+		return nil, errors.Wrapf(err, "looking up %s", pyprojPath)
+	}
+	if err == nil {
+		manifestPath, err := pypiresolver.MaturinManifestPath(pyf)
+		if err != nil {
+			return nil, err
+		}
+		if manifestPath != "" {
+			fullPath := path.Join(dir, manifestPath)
+			cf, err := tree.File(fullPath)
+			if errors.Is(err, git2.ErrFileNotFound) {
+				return nil, nil
+			}
+			if err != nil {
+				return nil, errors.Wrapf(err, "looking up %s", fullPath)
+			}
+			return cf, nil
+		}
+	}
+	cargoPath := path.Join(dir, "Cargo.toml")
+	cf, err := tree.File(cargoPath)
+	if err == nil {
+		return cf, nil
+	}
+	if !errors.Is(err, git2.ErrFileNotFound) {
+		return nil, errors.Wrapf(err, "looking up %s", cargoPath)
+	}
+	var prefix string
+	if cleanDir := path.Clean(dir); cleanDir != "." && cleanDir != "" {
+		prefix = cleanDir + "/"
+	}
+	var matches []*git2.File
+	if err := tree.Files().ForEach(func(f *git2.File) error {
+		if prefix != "" && !strings.HasPrefix(f.Name, prefix) {
+			return nil
+		}
+		if path.Base(f.Name) == "Cargo.toml" {
+			matches = append(matches, f)
+		}
+		return nil
+	}); err != nil {
+		return nil, errors.Wrap(err, "iterating tree files")
+	}
+	if len(matches) == 1 {
+		return matches[0], nil
+	}
+	return nil, nil
+}
+
+func targetPyO3VersionSuffix(pythonTag string) string {
+	digits := strings.TrimPrefix(strings.TrimPrefix(pythonTag, "cp"), "py")
+	if digits == "" {
+		return ""
+	}
+	return "py" + digits
+}
+
+func isPyO3ABI3FeatureDep(dep, abiTag string) bool {
+	_, ok := parsePyO3ABI3FeatureDep(dep, abiTag)
+	return ok
+}
+
+func parsePyO3ABI3FeatureDep(dep, abiTag string) (string, bool) {
+	rest, ok := strings.CutPrefix(dep, "pyo3/")
+	if !ok {
+		rest, ok = strings.CutPrefix(dep, "pyo3?/")
+	}
+	if !ok {
+		return "", false
+	}
+	abiPrefix := "abi3"
+	if strings.Contains(abiTag, "abi3t") {
+		abiPrefix = "abi3t"
+	}
+	if rest == abiPrefix {
+		return "", true
+	}
+	if suffix, ok := strings.CutPrefix(rest, abiPrefix+"-"); ok && suffix != "" {
+		return suffix, true
+	}
+	return "", false
 }
 
 // inferRustVersion determines the Rust toolchain version for a Rust-backed wheel
