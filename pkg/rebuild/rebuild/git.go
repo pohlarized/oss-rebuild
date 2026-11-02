@@ -28,8 +28,13 @@ import (
 )
 
 var (
-	boundaryPatternTpl     = `(^|[^\d])%s([^\d]|$)`
-	continuationPatternTpl = `(?i)%s[._-]?(beta|dev|rc|alpha|pre|canary|post)`
+	boundaryPatternTpl = `(^|[^\d])%s([^\d]|$)`
+	// NOTE: The numeric pattern must not continue an adjacent digit-separator run
+	// (\d[._-] or [._-]\d), so embedded dates (2023-10-12) and packaging
+	// revisions (v1.2-3) do not match two-segment versions.
+	numericBoundaryPatternTpl = `(?:^(?:[._-])?|[^\d._-]|[^\d][._-])%s(?:(?:[._-])?$|[^\d._-]|[._-][^\d])`
+	continuationPatternTpl    = `(?i)%s[._-]?(beta|dev|rc|alpha|pre|canary|post)`
+	dottedNumericVersionRE    = regexp.MustCompile(`^\d+(?:\.\d+)+$`)
 )
 
 // MatchTag evaluates whether the given tag is likely to refer to a package version.
@@ -44,8 +49,15 @@ func tagMatcher(pkg, version string) func(tag string) (strict, approx bool) {
 	for i, s := range spellings {
 		quoted[i] = regexp.QuoteMeta(s)
 	}
-	anySpelling := "(?:" + strings.Join(quoted, "|") + ")"
-	boundaryRE := regexp.MustCompile(fmt.Sprintf(boundaryPatternTpl, anySpelling))
+	literalSpelling := "(?:" + strings.Join(quoted, "|") + ")"
+	anySpelling := literalSpelling
+	boundaryPattern := fmt.Sprintf(boundaryPatternTpl, literalSpelling)
+	if numPat, ok := numericVersionPattern(version); ok {
+		anySpelling = "(?:" + literalSpelling + "|" + numPat + ")"
+		boundaryPattern = "(?:" + boundaryPattern + "|" + fmt.Sprintf(numericBoundaryPatternTpl, numPat) + ")"
+	}
+	anySpellingRE := regexp.MustCompile(anySpelling)
+	boundaryRE := regexp.MustCompile(boundaryPattern)
 	continuationRE := regexp.MustCompile(fmt.Sprintf(continuationPatternTpl, anySpelling))
 	var org string
 	if slash := strings.IndexByte(pkg, '/'); slash != -1 {
@@ -54,7 +66,7 @@ func tagMatcher(pkg, version string) func(tag string) (strict, approx bool) {
 	return func(tag string) (strict, approx bool) {
 		containsOrgButNotPkg := org != "" && strings.Contains(tag, org) && !strings.Contains(tag, pkg)
 		strict = boundaryRE.MatchString(tag) && !continuationRE.MatchString(tag) && !containsOrgButNotPkg
-		approx = slices.ContainsFunc(spellings, func(s string) bool { return strings.Contains(tag, s) })
+		approx = anySpellingRE.MatchString(tag)
 		return
 	}
 }
@@ -66,6 +78,26 @@ func versionSpellings(version string) []string {
 		return []string{version, under}
 	}
 	return []string{version}
+}
+
+// numericVersionPattern returns a regex matching dotted numeric versions with
+// optional leading zeros and a single dot, underscore, or dash separator.
+//
+// NOTE: The separator must be uniform so that a packaging revision such as
+// the -3 in 1.2-3 does not read as the patch segment of 1.2.3.
+func numericVersionPattern(version string) (string, bool) {
+	if !dottedNumericVersionRE.MatchString(version) {
+		return "", false
+	}
+	parts := strings.Split(version, ".")
+	for i, p := range parts {
+		trimmed := strings.TrimLeft(p, "0")
+		if trimmed == "" {
+			trimmed = "0"
+		}
+		parts[i] = "0*" + trimmed
+	}
+	return "(?:" + strings.Join(parts, `\.`) + "|" + strings.Join(parts, "_") + "|" + strings.Join(parts, "-") + ")", true
 }
 
 // tagAliases provides probable tag names for pkg accounting for e.g. npm @scope/, Maven group:artifact.
@@ -80,20 +112,29 @@ func tagAliases(pkg string) []string {
 	return aliases
 }
 
+func trimTagResidue(before, after string) string {
+	r := strings.ToLower(strings.Trim(before+after, "-_/.@"))
+	return strings.Trim(strings.TrimSuffix(r, "v"), "-_/.@")
+}
+
 // tagResidue is what a tag contains besides the version.
-func tagResidue(tag, version string) string {
-	for _, spelling := range versionSpellings(version) {
+func tagResidue(tag string, spellings []string, numResidueRE *regexp.Regexp) string {
+	for _, spelling := range spellings {
 		if before, after, found := strings.Cut(tag, spelling); found {
-			r := strings.ToLower(strings.Trim(before+after, "-_/.@"))
-			return strings.Trim(strings.TrimSuffix(r, "v"), "-_/.@")
+			return trimTagResidue(before, after)
+		}
+	}
+	if numResidueRE != nil {
+		if idx := numResidueRE.FindStringSubmatchIndex(tag); idx != nil {
+			v := 2 * numResidueRE.SubexpIndex("version")
+			return trimTagResidue(tag[:idx[v]], tag[idx[v+1]:])
 		}
 	}
 	return strings.ToLower(tag)
 }
 
 // tagRank measures how strongly a tag appears to relate to this package's release.
-func tagRank(tag, version string, aliases []string) int {
-	residue := tagResidue(tag, version)
+func tagRank(residue string, aliases []string) int {
 	if slices.Contains(aliases, residue) {
 		return 0 // contains package name alias AND version
 	}
@@ -108,12 +149,35 @@ func tagRank(tag, version string, aliases []string) int {
 	return 3 // names something else
 }
 
-// sortTagMatches orders candidates by tagRank.
+func spellingRank(tag string, spellingREs []*regexp.Regexp) int {
+	for i, re := range spellingREs {
+		if re.MatchString(tag) {
+			return i
+		}
+	}
+	return len(spellingREs)
+}
+
+// sortTagMatches orders candidates by tagRank, then literal version spelling.
 func sortTagMatches(matches []string, pkg, version string) {
 	aliases := tagAliases(pkg)
+	spellings := versionSpellings(version)
+	spellingREs := make([]*regexp.Regexp, len(spellings))
+	for i, s := range spellings {
+		spellingREs[i] = regexp.MustCompile(fmt.Sprintf(boundaryPatternTpl, regexp.QuoteMeta(s)))
+	}
+	var numResidueRE *regexp.Regexp
+	if numPat, ok := numericVersionPattern(version); ok {
+		numResidueRE = regexp.MustCompile(fmt.Sprintf(numericBoundaryPatternTpl, "(?P<version>"+numPat+")"))
+	}
 	sort.Strings(matches)
 	sort.SliceStable(matches, func(i, j int) bool {
-		return tagRank(matches[i], version, aliases) < tagRank(matches[j], version, aliases)
+		ri := tagRank(tagResidue(matches[i], spellings, numResidueRE), aliases)
+		rj := tagRank(tagResidue(matches[j], spellings, numResidueRE), aliases)
+		if ri != rj {
+			return ri < rj
+		}
+		return spellingRank(matches[i], spellingREs) < spellingRank(matches[j], spellingREs)
 	})
 }
 

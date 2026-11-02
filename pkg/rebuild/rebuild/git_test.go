@@ -45,6 +45,25 @@ func TestMatchTag(t *testing.T) {
 		{"commons-lang-3.10-RC1", "org.apache.commons:commons-lang3", "3.10", false, true},
 		{"0.4pre", "mypackage", "0.4", false, true},
 		{"1.0.0.post1", "mypackage", "1.0.0", false, true},
+		{"2026.03.6", "rdkit", "2026.3.6", true, true},
+		{"Release_2026_03_6", "rdkit", "2026.3.6", true, true},
+		{"Release_2026_03_6_rc1", "rdkit", "2026.3.6", false, true},
+		{"openbabel-3-2-1", "openbabel", "3.2.1", true, true},
+		{"openbabel-3-2-1-beta1", "openbabel", "3.2.1", false, true},
+		{"pkg-1.2-3", "pkg", "1.2.3", false, false},
+		{"v1.2-3", "pkg", "1.2.3", false, false},
+		{"v1_2-3", "pkg", "1.2.3", false, false},
+		{"2026.13.6", "rdkit", "2026.3.6", false, false},
+		{"2026.3.60", "rdkit", "2026.3.6", false, true},
+		{"12026.3.6", "rdkit", "2026.3.6", false, true},
+		{"902026.03.6", "rdkit", "2026.3.6", false, true},
+		{"nightly-2023-10-12", "pkg", "10.12", false, true},
+		{"2024-01-02", "pkg", "1.2", false, true},
+		{"snapshot_2024_01_02", "pkg", "1.2", false, true},
+		{"v1.2-3", "pkg", "2.3", false, true},
+		{"curve25519-4.1.1", "curve25519-dalek", "4.1.1", true, true},
+		{"boto3-1.26.0", "boto3", "1.26.0", true, true},
+		{"py3-1.2.3", "pkg", "1.2.3", true, true},
 	}
 
 	for _, tt := range tests {
@@ -121,6 +140,34 @@ func TestSortTagMatches(t *testing.T) {
 			version: "2.0.52",
 			want:    []string{"v2_0_52", "rel_2_0_52"},
 		},
+		{
+			name:    "LiteralVersionBeatsZeroPaddedTag",
+			matches: []string{"2026.03.6", "2026.3.6"},
+			pkg:     "rdkit",
+			version: "2026.3.6",
+			want:    []string{"2026.3.6", "2026.03.6"},
+		},
+		{
+			name:    "LiteralVersionBeatsDashSeparatedTag",
+			matches: []string{"openbabel-3-2-1", "openbabel-3.2.1"},
+			pkg:     "openbabel",
+			version: "3.2.1",
+			want:    []string{"openbabel-3.2.1", "openbabel-3-2-1"},
+		},
+		{
+			name:    "DashedPackageAliasBeatsUnrelatedTag",
+			matches: []string{"other-3.2.1", "openbabel-3-2-1"},
+			pkg:     "openbabel",
+			version: "3.2.1",
+			want:    []string{"openbabel-3-2-1", "other-3.2.1"},
+		},
+		{
+			name:    "BareZeroPaddedTagBeatsReleasePrefix",
+			matches: []string{"Release_2026_03_6", "2026.03.6"},
+			pkg:     "rdkit",
+			version: "2026.3.6",
+			want:    []string{"2026.03.6", "Release_2026_03_6"},
+		},
 	}
 
 	for _, tt := range tests {
@@ -147,6 +194,11 @@ func TestFindTagMatch(t *testing.T) {
 	createLightweightTag(repo, "rel_2_0_5", c1)
 	createLightweightTag(repo, "rel_2_0_52", c2)
 	createLightweightTag(repo, "rel_1_1_0", c3)
+	createLightweightTag(repo, "2026.03.6", c2)
+	createLightweightTag(repo, "Release_2026_03_5", c3)
+	createLightweightTag(repo, "openbabel-3-2-1", c1)
+	createLightweightTag(repo, "foo-1-2-3", c1)
+	createLightweightTag(repo, "foo-1.2.3", c2)
 
 	tests := []struct {
 		pkg     string
@@ -160,6 +212,10 @@ func TestFindTagMatch(t *testing.T) {
 		{"otherpackage", "1.0.0-alpha", c3, false},
 		{"sqlalchemy", "2.0.52", c2, false},
 		{"sqlalchemy", "2.0.5", c1, false},
+		{"rdkit", "2026.3.6", c2, false},
+		{"rdkit", "2026.3.5", c3, false},
+		{"openbabel", "3.2.1", c1, false},
+		{"foo", "1.2.3", c2, false},
 		{"mypackage", "2.0.0", "", false}, // No match
 		// TODO: Add error test cases.
 	}
