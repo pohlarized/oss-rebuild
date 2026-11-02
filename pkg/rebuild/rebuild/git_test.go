@@ -5,6 +5,7 @@ package rebuild
 
 import (
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/go-git/go-billy/v5/memfs"
@@ -135,9 +136,8 @@ func TestSortTagMatches(t *testing.T) {
 }
 
 func TestFindTagMatch(t *testing.T) {
-	repo := must(git.Init(filesystem.NewStorage(memfs.New(), cache.NewObjectLRUDefault()), memfs.New()))
-	g2 := must(gitxtest.Open(repo.Storer))
-
+	store := filesystem.NewStorage(memfs.New(), cache.NewObjectLRUDefault())
+	repo := must(git.Init(store, memfs.New()))
 	c1 := createCommit(repo, "commit1")
 	c2 := createCommit(repo, "commit2")
 	c3 := createCommit(repo, "commit3")
@@ -147,32 +147,48 @@ func TestFindTagMatch(t *testing.T) {
 	createLightweightTag(repo, "rel_2_0_5", c1)
 	createLightweightTag(repo, "rel_2_0_52", c2)
 	createLightweightTag(repo, "rel_1_1_0", c3)
-
+	rcTag := storeTagObject(repo, "apache-arrow-18.1.0-rc2", plumbing.NewHash(c2), plumbing.CommitObject)
+	must(0, repo.Storer.SetReference(plumbing.NewHashReference(plumbing.NewTagReferenceName("apache-arrow-18.1.0-rc2"), rcTag)))
+	relTag := storeTagObject(repo, "apache-arrow-18.1.0", rcTag, plumbing.TagObject)
+	must(0, repo.Storer.SetReference(plumbing.NewHashReference(plumbing.NewTagReferenceName("apache-arrow-18.1.0"), relTag)))
+	missingInnerTag := storeTagObject(repo, "v6.0.0", plumbing.NewHash("baadf00dbaadf00dbaadf00dbaadf00dbaadf00d"), plumbing.TagObject)
+	must(0, repo.Storer.SetReference(plumbing.NewHashReference(plumbing.NewTagReferenceName("v6.0.0"), missingInnerTag)))
+	c1Tree := must(repo.CommitObject(plumbing.NewHash(c1))).TreeHash
+	treeTag := storeTagObject(repo, "v7.0.0", c1Tree, plumbing.TreeObject)
+	must(0, repo.Storer.SetReference(plumbing.NewHashReference(plumbing.NewTagReferenceName("v7.0.0"), treeTag)))
+	g2 := must(gitxtest.Open(repo.Storer))
 	tests := []struct {
-		pkg     string
-		version string
-		want    string
-		wantErr bool
+		name          string
+		pkg           string
+		version       string
+		want          string
+		wantErrSubstr string
 	}{
-		{"mypackage", "1.0.0", c1, false},
-		{"mypackage", "1.1.0", c2, false},
-		{"otherpackage", "1.0.0", c1, false},
-		{"otherpackage", "1.0.0-alpha", c3, false},
-		{"sqlalchemy", "2.0.52", c2, false},
-		{"sqlalchemy", "2.0.5", c1, false},
-		{"mypackage", "2.0.0", "", false}, // No match
-		// TODO: Add error test cases.
+		{name: "LightweightTag", pkg: "mypackage", version: "1.0.0", want: c1},
+		{name: "SecondLightweightTag", pkg: "mypackage", version: "1.1.0", want: c2},
+		{name: "OtherPackageLightweightTag", pkg: "otherpackage", version: "1.0.0", want: c1},
+		{name: "SingleAnnotatedTag", pkg: "otherpackage", version: "1.0.0-alpha", want: c3},
+		{name: "UnderscoreTag", pkg: "sqlalchemy", version: "2.0.52", want: c2},
+		{name: "UnderscoreTagShortPatch", pkg: "sqlalchemy", version: "2.0.5", want: c1},
+		{name: "NestedAnnotatedTag", pkg: "pyarrow", version: "18.1.0", want: c2},
+		{name: "MissingInnerTagObject", pkg: "mypackage", version: "6.0.0", wantErrSubstr: "peeling tag v6.0.0"},
+		{name: "AnnotatedTagTargetingTree", pkg: "mypackage", version: "7.0.0", wantErrSubstr: "peeling tag v7.0.0"},
+		{name: "NoMatch", pkg: "mypackage", version: "2.0.0", want: ""},
 	}
-
 	for _, tt := range tests {
-		t.Run(tt.pkg+"-"+tt.version, func(t *testing.T) {
+		t.Run(tt.name, func(t *testing.T) {
 			got, err := FindTagMatch(tt.pkg, tt.version, g2)
-			if (err != nil) != tt.wantErr {
-				t.Errorf("FindTagMatch() error = %v, wantErr %v", err, tt.wantErr)
+			if tt.wantErrSubstr != "" {
+				if err == nil || !strings.Contains(err.Error(), tt.wantErrSubstr) {
+					t.Fatalf("FindTagMatch(%q, %q) error = %v, want substring %q", tt.pkg, tt.version, err, tt.wantErrSubstr)
+				}
 				return
 			}
-			if got != tt.want {
-				t.Errorf("FindTagMatch() = %v, want %v", got, tt.want)
+			if err != nil {
+				t.Fatalf("FindTagMatch(%q, %q) unexpected error: %v", tt.pkg, tt.version, err)
+			}
+			if diff := cmp.Diff(tt.want, got); diff != "" {
+				t.Errorf("FindTagMatch(%q, %q) diff (-want +got):\n%s", tt.pkg, tt.version, diff)
 			}
 		})
 	}
@@ -224,6 +240,18 @@ func createAnnotatedTag(repo *git.Repository, tag, targetCommit string) {
 		Message: "Test annotated tag",
 		Tagger:  &object.Signature{Name: "Test Author", Email: "test@example.com"},
 	}))
+}
+
+func storeTagObject(repo *git.Repository, name string, target plumbing.Hash, targetType plumbing.ObjectType) plumbing.Hash {
+	enc := repo.Storer.NewEncodedObject()
+	must(0, (&object.Tag{
+		Name:       name,
+		Tagger:     object.Signature{Name: "Test Author", Email: "test@example.com"},
+		Message:    "Test annotated tag",
+		TargetType: targetType,
+		Target:     target,
+	}).Encode(enc))
+	return must(repo.Storer.SetEncodedObject(enc))
 }
 
 func must[T any](t T, err error) T {

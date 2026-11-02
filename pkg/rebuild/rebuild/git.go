@@ -145,13 +145,11 @@ func FindTagMatch(pkg, version string, repo *git2.Repository) (commit string, er
 		if err != nil {
 			return "", err
 		}
-		if t, err := repo.TagObject(ref.Hash()); err == nil {
-			// Annotated tag. Use the Target pointer as the ref hash.
-			return t.Target.String(), nil
-		} else {
-			// Lightweight tag. Use the ref hash itself.
-			return ref.Hash().String(), nil
+		h, err := repo.ResolveRevision(git2.Revision(ref.Hash().String()))
+		if err != nil {
+			return "", errors.Wrapf(err, "peeling tag %s", matches[0])
 		}
+		return h.String(), nil
 	}
 	return "", nil
 }
