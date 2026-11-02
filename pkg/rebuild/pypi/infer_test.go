@@ -938,9 +938,11 @@ func TestInferBuildRoot(t *testing.T) {
 	tree := must(must(repo.Repository.CommitObject(git2.Hash(repo.Commits["initial-commit"]))).Tree())
 	tests := []struct {
 		name             string
+		dir              string
 		module           []byte
 		usesCibuildwheel bool
 		want             string
+		wantErr          bool
 	}{
 		{
 			name:             "DebugInfo",
@@ -988,16 +990,28 @@ func TestInferBuildRoot(t *testing.T) {
 			usesCibuildwheel: true,
 			want:             "/project",
 		},
+		{
+			name:   "SubdirectoryDoesNotDoubleRoot",
+			dir:    "interfaces/daqp-python",
+			module: elfWithUnits(compileUnit{Name: "src/module.c", CompDir: "/project/interfaces/daqp-python"}),
+			want:   "/project",
+		},
+		{
+			name:    "InvalidSubdirRejected",
+			dir:     "../outside",
+			module:  elfWithUnits(),
+			wantErr: true,
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			zr := readWheel(t, zipEntry("pkg/module.cpython-312-x86_64-linux-gnu.so", string(tt.module)))
-			got, _, err := inferBuildPaths(zr, tree, tt.usesCibuildwheel)
-			if err != nil {
-				t.Fatalf("inferBuildPaths(%t) returned error: %v", tt.usesCibuildwheel, err)
+			got, _, err := inferBuildPaths(zr, tree, tt.dir, tt.usesCibuildwheel)
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("inferBuildPaths(%q, %t) error = %v, wantErr %t", tt.dir, tt.usesCibuildwheel, err, tt.wantErr)
 			}
 			if got != tt.want {
-				t.Errorf("inferBuildPaths(%t) build root = %q, want %q", tt.usesCibuildwheel, got, tt.want)
+				t.Errorf("inferBuildPaths(%q, %t) build root = %q, want %q", tt.dir, tt.usesCibuildwheel, got, tt.want)
 			}
 		})
 	}
@@ -1170,7 +1184,7 @@ func TestInferBuildEnvPath(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			_, got, err := inferBuildPaths(readWheel(t, tc.entries...), tree, false)
+			_, got, err := inferBuildPaths(readWheel(t, tc.entries...), tree, "", false)
 			if err != nil {
 				t.Fatalf("inferBuildPaths() returned error: %v", err)
 			}

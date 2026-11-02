@@ -181,7 +181,7 @@ func TestCandidatePaths(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			dwarfPaths, rodataPaths, skipped := candidatePaths(readWheel(t, tc.entries...), files)
+			dwarfPaths, rodataPaths, skipped := candidatePaths(readWheel(t, tc.entries...), files, "")
 			if diff := cmp.Diff(tc.wantDWARF, dwarfPaths.roots); diff != "" {
 				t.Errorf("candidatePaths() DWARF diff (-want +got):\n%s", diff)
 			}
@@ -198,6 +198,7 @@ func TestCandidatePaths(t *testing.T) {
 func TestMostCommonRootOfUnits(t *testing.T) {
 	tests := []struct {
 		name  string
+		dir   string
 		files []string
 		units []compileUnit
 		want  string
@@ -342,6 +343,61 @@ func TestMostCommonRootOfUnits(t *testing.T) {
 			files: []string{"src/module.c"},
 			want:  "",
 		},
+		{
+			// Root-level package built from the parent directory of the checkout.
+			name:  "RootPackageSourceUnderCompDir",
+			files: []string{"src/module.c"},
+			units: []compileUnit{{Name: "/work/project/src/module.c", CompDir: "/work"}},
+			want:  "/work/project",
+		},
+		{
+			name:  "SubdirectoryNestedSourceTree",
+			dir:   "interfaces/daqp-python",
+			files: []string{"src/api.c", "interfaces/daqp-python/csrc/src/api.c"},
+			units: []compileUnit{
+				{Name: "/project/interfaces/daqp-python/csrc/src/api.c", CompDir: "/project/interfaces/daqp-python"},
+			},
+			want: "/project",
+		},
+		{
+			name:  "SubdirectoryRelativeNameFromRepoRootCompDir",
+			dir:   "interfaces/daqp-python",
+			files: []string{"src/api.c", "interfaces/daqp-python/csrc/src/api.c"},
+			units: []compileUnit{
+				{Name: "csrc/src/api.c", CompDir: "/project"},
+			},
+			want: "/project",
+		},
+		{
+			name:  "SubdirectoryRelativeNameAlreadyPrefixed",
+			dir:   "interfaces/daqp-python",
+			files: []string{"interfaces/daqp-python/csrc/src/api.c"},
+			units: []compileUnit{
+				{Name: "interfaces/daqp-python/csrc/src/api.c", CompDir: "/project"},
+			},
+			want: "/project",
+		},
+		{
+			// setup.py copies root src/api.c into interfaces/daqp-python/csrc/src/api.c at build time.
+			name:  "SubdirectoryBuildTimeCopiedRootSource",
+			dir:   "interfaces/daqp-python",
+			files: []string{"src/api.c", "interfaces/daqp-python/daqp.pyx"},
+			units: []compileUnit{
+				{Name: "/project/interfaces/daqp-python/csrc/src/api.c", CompDir: "/project/interfaces/daqp-python"},
+				{Name: "/project/interfaces/daqp-python/csrc/src/api.c", CompDir: "/project/interfaces/daqp-python"},
+				{Name: "/project/interfaces/daqp-python/daqp.c", CompDir: "/project/interfaces/daqp-python"},
+			},
+			want: "/project",
+		},
+		{
+			name:  "SubdirectoryCompDirSuffixStripped",
+			dir:   "interfaces/daqp-python",
+			files: []string{"src/api.c"},
+			units: []compileUnit{
+				{Name: "src/api.c", CompDir: "/project/interfaces/daqp-python"},
+			},
+			want: "/project",
+		},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -349,14 +405,15 @@ func TestMostCommonRootOfUnits(t *testing.T) {
 			for _, f := range tc.files {
 				files[f] = true
 			}
+			subdir := must(cleanSubdir(tc.dir))
 			roots := make([]string, 0, len(tc.units))
 			for _, u := range tc.units {
-				if root := u.buildRoot(files); usableRoot(root) {
+				if root := u.buildRoot(files, subdir); usableRoot(root) {
 					roots = append(roots, root)
 				}
 			}
-			if got := mostCommon(roots); got != tc.want {
-				t.Errorf("mostCommon() = %q, want %q", got, tc.want)
+			if diff := cmp.Diff(tc.want, mostCommon(roots)); diff != "" {
+				t.Errorf("build root for dir %q diff (-want +got):\n%s", tc.dir, diff)
 			}
 		})
 	}
@@ -365,6 +422,7 @@ func TestMostCommonRootOfUnits(t *testing.T) {
 func TestMostCommonRootOfRodataPaths(t *testing.T) {
 	tests := []struct {
 		name  string
+		dir   string
 		files []string
 		paths []string
 		want  string
@@ -413,6 +471,23 @@ func TestMostCommonRootOfRodataPaths(t *testing.T) {
 			paths: []string{"/project/build/pkg/_mod.c"},
 			want:  "",
 		},
+		{
+			name:  "SubdirectoryCopiedSource",
+			dir:   "interfaces/daqp-python",
+			files: []string{"src/api.c"},
+			paths: []string{"/project/interfaces/daqp-python/src/api.c"},
+			want:  "/project",
+		},
+		{
+			name:  "SubdirectoryNestedStagingIgnored",
+			dir:   "interfaces/daqp-python",
+			files: []string{"src/api.c", "interfaces/daqp-python/include/daqp.h"},
+			paths: []string{
+				"/project/interfaces/daqp-python/csrc/src/api.c",
+				"/project/interfaces/daqp-python/include/daqp.h",
+			},
+			want: "/project",
+		},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -420,14 +495,15 @@ func TestMostCommonRootOfRodataPaths(t *testing.T) {
 			for _, f := range tc.files {
 				files[f] = true
 			}
+			subdir := must(cleanSubdir(tc.dir))
 			roots := make([]string, 0, len(tc.paths))
 			for _, p := range tc.paths {
-				if root := rodataBuildRoot(p, files); usableRoot(root) {
+				if root := rodataBuildRoot(p, files, subdir); usableRoot(root) {
 					roots = append(roots, root)
 				}
 			}
-			if got := mostCommon(roots); got != tc.want {
-				t.Errorf("mostCommon() = %q, want %q", got, tc.want)
+			if diff := cmp.Diff(tc.want, mostCommon(roots)); diff != "" {
+				t.Errorf("build root for dir %q diff (-want +got):\n%s", tc.dir, diff)
 			}
 		})
 	}

@@ -41,7 +41,13 @@
 //     .cpp file also matches through its .pyx or .py sibling. Relative names
 //     and generated files count only if DW_AT_comp_dir lies inside the
 //     candidate root, which rejects mypyc and Cython build_dir outputs written
-//     to build directories that mirror the package layout. .rodata paths also
+//     to build directories that mirror the package layout. When the package
+//     lives in a repository subdirectory dir (so pypi/build/platform-wheel
+//     builds inside "<buildRoot>/<dir>"), relative DW_AT_name paths that do not
+//     already start with dir resolve against "<comp_dir>/<dir>" first,
+//     candidate roots inside DW_AT_comp_dir or deeper than the repository root
+//     implied by a "/<dir>" suffix are skipped, and a trailing "/<dir>" suffix
+//     is stripped when a repository-root source matches. .rodata paths also
 //     match by longest suffix, but they have no DW_AT_comp_dir and include
 //     strings from every linked header, so the repository-relative path must
 //     span a directory and generated files do not match through a .pyx or .py
@@ -124,9 +130,10 @@ func extractBuildEnvPath(p string) string {
 
 // candidatePaths returns the usable candidate build roots and isolated build
 // environment paths of the wheel's extension modules from their DWARF debug info
-// and from their .rodata strings, recording an error in skipped for each module
-// or section that cannot be read.
-func candidatePaths(zr *zip.Reader, files map[string]bool) (dwarfPaths, rodataPaths buildPaths, skipped []error) {
+// and from their .rodata strings for a package at subdir (or "" for the
+// repository root), recording an error in skipped for each module or section
+// that cannot be read.
+func candidatePaths(zr *zip.Reader, files map[string]bool, subdir string) (dwarfPaths, rodataPaths buildPaths, skipped []error) {
 	for _, f := range zr.File {
 		if !isExtensionModule(f.Name) || f.UncompressedSize64 > maxModuleSize {
 			continue
@@ -141,7 +148,7 @@ func candidatePaths(zr *zip.Reader, files map[string]bool) (dwarfPaths, rodataPa
 			skipped = append(skipped, errors.Wrapf(err, "reading debug info of %s", f.Name))
 		}
 		for _, u := range units {
-			if root := u.buildRoot(files); usableRoot(root) {
+			if root := u.buildRoot(files, subdir); usableRoot(root) {
 				dwarfPaths.roots = append(dwarfPaths.roots, root)
 			}
 		}
@@ -151,7 +158,7 @@ func candidatePaths(zr *zip.Reader, files map[string]bool) (dwarfPaths, rodataPa
 			skipped = append(skipped, errors.Wrapf(err, "reading .rodata of %s", f.Name))
 		}
 		for _, p := range paths {
-			if root := rodataBuildRoot(p, files); usableRoot(root) {
+			if root := rodataBuildRoot(p, files, subdir); usableRoot(root) {
 				rodataPaths.roots = append(rodataPaths.roots, root)
 			}
 		}
@@ -297,6 +304,19 @@ func repoFiles(tree *git2.Tree) (map[string]bool, error) {
 	return files, nil
 }
 
+// cleanSubdir normalizes a repository-relative package directory to "" for the
+// repository root, returning an error for absolute or escaping paths.
+func cleanSubdir(dir string) (string, error) {
+	cleaned := path.Clean(dir)
+	if path.IsAbs(cleaned) || cleaned == ".." || strings.HasPrefix(cleaned, "../") {
+		return "", errors.Errorf("invalid package subdirectory %q", dir)
+	}
+	if cleaned == "." {
+		return "", nil
+	}
+	return cleaned, nil
+}
+
 // usableRoot reports whether root is a candidate build root outside the
 // dependency trees that is either checkoutDir or accepted by validateBuildPath.
 func usableRoot(root string) bool {
@@ -333,8 +353,10 @@ func isDependencyTree(root string) bool {
 }
 
 // rodataBuildRoot returns the prefix of p before its longest multi-segment
-// suffix in files, or "" if no suffix matches.
-func rodataBuildRoot(p string, files map[string]bool) string {
+// suffix in files, skipping prefixes that contain "/<subdir>/" and stripping a
+// trailing "/<subdir>" when a repository-root file matches, or "" if no suffix
+// matches.
+func rodataBuildRoot(p string, files map[string]bool, subdir string) string {
 	p = path.Clean(p)
 	for i := 1; i < len(p); i++ {
 		if p[i] != '/' {
@@ -344,19 +366,47 @@ func rodataBuildRoot(p string, files map[string]bool) string {
 		if !strings.Contains(rel, "/") {
 			return ""
 		}
+		if subdir != "" && strings.Contains(root, "/"+subdir+"/") {
+			continue
+		}
 		if files[rel] {
-			return root
+			return repoRoot(root, rel, subdir)
 		}
 	}
 	return ""
 }
 
-// buildRoot returns the prefix of the unit's source path before its longest
-// suffix in files, or "" if no suffix matches.
-func (u compileUnit) buildRoot(files map[string]bool) string {
+// buildRoot returns the unit's candidate build root, first resolving a
+// relative name outside subdir against "<CompDir>/<subdir>" when subdir is
+// non-empty, or "" if no suffix matches. See candidateBuildRoot for the
+// subdirectory rules.
+func (u compileUnit) buildRoot(files map[string]bool, subdir string) string {
+	if subdir != "" && !path.IsAbs(u.Name) {
+		compDir := path.Clean(u.CompDir)
+		name, _, _ := strings.Cut(u.Name, "/@/")
+		name = path.Clean(name)
+		compDirInSubdir := strings.Contains(compDir+"/", "/"+subdir+"/")
+		nameInSubdir := strings.HasPrefix(name+"/", subdir+"/")
+		if path.IsAbs(compDir) && !compDirInSubdir && !nameInSubdir {
+			subdirUnit := compileUnit{Name: name, CompDir: path.Join(compDir, subdir)}
+			if root := subdirUnit.candidateBuildRoot(files, subdir); root != "" {
+				return root
+			}
+		}
+	}
+	return u.candidateBuildRoot(files, subdir)
+}
+
+// candidateBuildRoot resolves the unit's source path against files while
+// accounting for a subdirectory package build at subdir. Because
+// pypi/build/platform-wheel builds inside "<buildRoot>/<dir>" when both are
+// set, a candidate root inside CompDir or carrying a trailing subdir segment
+// from a copied root source would double subdir at build time.
+func (u compileUnit) candidateBuildRoot(files map[string]bool, subdir string) string {
 	compDir := path.Clean(u.CompDir)
+	absName := path.IsAbs(u.Name)
 	src := u.Name
-	if !path.IsAbs(src) {
+	if !absName {
 		// NOTE: Strip the codegen-unit suffix that rustc appends to relative
 		// crate roots (https://github.com/rust-lang/rust/issues/88521).
 		src, _, _ = strings.Cut(src, "/@/")
@@ -366,23 +416,42 @@ func (u compileUnit) buildRoot(files map[string]bool) string {
 		return ""
 	}
 	src = path.Clean(src)
+	var compRoot string
+	if subdir != "" {
+		if idx := strings.LastIndex(compDir+"/", "/"+subdir+"/"); idx > 0 {
+			compRoot = compDir[:idx]
+		}
+	}
 	for i := 1; i < len(src); i++ {
 		if src[i] != '/' {
 			continue
 		}
 		root, rel := src[:i], src[i+1:]
+		if subdir != "" && strings.HasPrefix(root, compDir+"/") {
+			continue
+		}
+		if compRoot != "" && strings.HasPrefix(root, compRoot+"/") && root != compDir {
+			continue
+		}
 		// NOTE: Relative names and generated sources require CompDir inside
 		// root so out-of-tree build directories that mirror the package layout
 		// cannot match.
 		inRoot := compDir == root || strings.HasPrefix(compDir, root+"/")
-		if files[rel] && (inRoot || path.IsAbs(u.Name)) {
-			return root
-		}
-		if inRoot && hasPythonSource(files, rel) {
-			return root
+		if (files[rel] && (inRoot || absName)) || (inRoot && hasPythonSource(files, rel)) {
+			return repoRoot(root, rel, subdir)
 		}
 	}
 	return ""
+}
+
+// repoRoot strips a trailing "/<subdir>" from root when rel is a
+// repository-root source copied into the package directory, because
+// pypi/build/platform-wheel builds inside "<buildRoot>/<dir>".
+func repoRoot(root, rel, subdir string) string {
+	if trimmed, ok := strings.CutSuffix(root, "/"+subdir); ok && subdir != "" && trimmed != "" && !strings.HasPrefix(rel, subdir+"/") {
+		return trimmed
+	}
+	return root
 }
 
 // hasPythonSource reports whether files contains a Cython or Python source

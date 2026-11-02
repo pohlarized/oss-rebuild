@@ -556,7 +556,7 @@ func inferBuild(ctx context.Context, t rebuild.Target, mux rebuild.RegistryMux, 
 		if err != nil {
 			return nil, errors.Wrap(err, "extracting cibuildwheel specs")
 		}
-		buildRoot, buildEnvPath, err := inferBuildPaths(zr, tree, usesCibw)
+		buildRoot, buildEnvPath, err := inferBuildPaths(zr, tree, dir, usesCibw)
 		if err != nil {
 			return nil, errors.Wrap(err, "inferring build paths")
 		}
@@ -651,12 +651,16 @@ func inferBaseImage(pins platform.CibuildwheelPinTable, platformTag string, uplo
 //  3. cibuildwheel's project directory, if the project's CI runs cibuildwheel.
 //
 // The build environment path comes from DWARF debug info, or else .rodata.
-func inferBuildPaths(zr *zip.Reader, tree *git2.Tree, usesCibuildwheel bool) (buildRoot, buildEnvPath string, err error) {
+func inferBuildPaths(zr *zip.Reader, tree *git2.Tree, dir string, usesCibuildwheel bool) (buildRoot, buildEnvPath string, err error) {
+	subdir, err := cleanSubdir(dir)
+	if err != nil {
+		return "", "", err
+	}
 	files, err := repoFiles(tree)
 	if err != nil {
 		return "", "", errors.Wrap(err, "listing repository files")
 	}
-	dwarfPaths, rodataPaths, skipped := candidatePaths(zr, files)
+	dwarfPaths, rodataPaths, skipped := candidatePaths(zr, files, subdir)
 	if len(skipped) > 0 {
 		log.Printf("Skipped %d sections that could not be read while inferring build paths, first: %v", len(skipped), skipped[0])
 	}
