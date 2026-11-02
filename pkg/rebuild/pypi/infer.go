@@ -685,8 +685,8 @@ func inferBuildPaths(zr *zip.Reader, tree *git2.Tree, usesCibuildwheel bool) (bu
 }
 
 var (
-	// setupCythonImportPat matches a setup.py that compiles extensions with Cython.
-	setupCythonImportPat = re.MustCompile(`(?m)^\s*(?:from\s+Cython\b|import\s+[Cc]ython\b)`)
+	// cythonImportPat matches Python build code that compiles extensions with Cython.
+	cythonImportPat = re.MustCompile(`(?m)^\s*(?:from\s+Cython\b|import\s+[Cc]ython\b)`)
 	// cythonABIModulePat matches the Cython version embedded in extension modules.
 	// NOTE: CYTHON_ABI is the Cython version with '.' replaced by '_', optionally
 	// followed by a PEP 440 pre-release tag (a1, b2, rc1) and, from 3.1 on, by
@@ -695,32 +695,56 @@ var (
 )
 
 // inferCythonRequirement pins Cython to the version the wheel's extension
-// modules record when setup.py imports it, returning "" if setup.py does not
-// or no module records a version.
+// modules record when setup.py or an in-tree PEP 517 backend imports it and no
+// Cython requirement is declared, returning "" otherwise.
 func inferCythonRequirement(tree *git2.Tree, dir, pkg string, zr *zip.Reader, reqs []string) (string, error) {
 	// NOTE: inferRequirements derives setuptools from the wheel's Generator header
 	// even when pyproject.toml selects flit_core, which ignores setup.py. Cython's
 	// own setup.py imports Cython from the source checkout.
-	if !hasRequirement(reqs, "setuptools") || hasRequirement(reqs, "flit-core", "cython") || pypireg.NormalizedName(pkg) == "cython" {
+	if hasRequirement(reqs, "flit-core", "cython") || pypireg.NormalizedName(pkg) == "cython" {
 		return "", nil
 	}
-	f, err := tree.File(path.Join(dir, "setup.py"))
-	if errors.Is(err, git2.ErrFileNotFound) {
-		return "", nil
-	} else if err != nil {
-		return "", errors.Wrap(err, "finding setup.py")
-	}
-	src, err := f.Contents()
-	if err != nil {
-		return "", errors.Wrap(err, "reading setup.py")
-	}
-	if !setupCythonImportPat.MatchString(src) {
-		return "", nil
+	imports, err := buildCodeImportsCython(tree, dir, reqs)
+	if err != nil || !imports {
+		return "", err
 	}
 	if v := wheelCythonVersion(zr); v != "" {
 		return "Cython==" + v, nil
 	}
 	return "", nil
+}
+
+func buildCodeImportsCython(tree *git2.Tree, dir string, reqs []string) (bool, error) {
+	if hasRequirement(reqs, "setuptools") {
+		if ok, err := fileImportsCython(tree, path.Join(dir, "setup.py")); err != nil || ok {
+			return ok, err
+		}
+	}
+	backendPaths, err := pypiresolver.InTreeBackendSourcePaths(tree, dir)
+	if err != nil {
+		return false, errors.Wrap(err, "locating in-tree build backend")
+	}
+	for _, p := range backendPaths {
+		if ok, err := fileImportsCython(tree, p); err != nil || ok {
+			return ok, err
+		}
+	}
+	return false, nil
+}
+
+func fileImportsCython(tree *git2.Tree, filePath string) (bool, error) {
+	f, err := tree.File(filePath)
+	if errors.Is(err, git2.ErrFileNotFound) {
+		return false, nil
+	}
+	if err != nil {
+		return false, errors.Wrapf(err, "finding %s", filePath)
+	}
+	src, err := f.Contents()
+	if err != nil {
+		return false, errors.Wrapf(err, "reading %s", filePath)
+	}
+	return cythonImportPat.MatchString(src), nil
 }
 
 // wheelCythonVersion returns the Cython version that the wheel's extension

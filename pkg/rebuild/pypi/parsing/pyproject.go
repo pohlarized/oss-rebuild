@@ -6,7 +6,9 @@ package parsing
 import (
 	"context"
 	"log"
+	"path"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	pypireg "github.com/google/oss-rebuild/pkg/registry/pypi"
@@ -44,7 +46,9 @@ type CibuildwheelConfig struct {
 type PyProject struct {
 	Project     ProjectMetadata `toml:"project"`
 	BuildSystem struct {
-		Requires []string `toml:"requires"`
+		Requires     []string `toml:"requires"`
+		BuildBackend string   `toml:"build-backend"`
+		BackendPath  []string `toml:"backend-path"`
 	} `toml:"build-system"`
 	Tool struct {
 		Poetry       ProjectMetadata    `toml:"poetry"`
@@ -118,4 +122,76 @@ func extractPyProjectRequirements(ctx context.Context, f *git2.File) ([]string, 
 	}
 	log.Println("Added these reqs from pyproject.toml: " + strings.Join(reqs, ", "))
 	return reqs, nil
+}
+
+// InTreeBackendSourcePaths returns existing Python source files in tree for an
+// in-tree PEP 517 backend configured in dir/pyproject.toml, relative to tree root.
+// Missing or unparseable pyproject.toml files return nil, nil.
+// https://peps.python.org/pep-0517/#in-tree-build-backends
+func InTreeBackendSourcePaths(tree *git2.Tree, dir string) ([]string, error) {
+	f, err := tree.File(path.Join(dir, "pyproject.toml"))
+	if errors.Is(err, git2.ErrFileNotFound) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, errors.Wrap(err, "finding pyproject.toml")
+	}
+	pyProject, err := ReadPyProject(f)
+	var decodeErr *toml.DecodeError
+	if errors.As(err, &decodeErr) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	mod, _, _ := strings.Cut(pyProject.BuildSystem.BuildBackend, ":")
+	topMod, _, _ := strings.Cut(strings.TrimSpace(mod), ".")
+	topMod = strings.TrimSpace(topMod)
+	if topMod == "" || strings.Contains(topMod, "/") || len(pyProject.BuildSystem.BackendPath) == 0 {
+		return nil, nil
+	}
+	var paths []string
+	collectDir := func(subDir string) error {
+		subTree, err := tree.Tree(subDir)
+		if errors.Is(err, git2.ErrDirectoryNotFound) {
+			return nil
+		}
+		if err != nil {
+			return errors.Wrapf(err, "finding directory %s", subDir)
+		}
+		return errors.Wrapf(subTree.Files().ForEach(func(f *git2.File) error {
+			if strings.HasSuffix(f.Name, ".py") {
+				paths = append(paths, path.Join(subDir, f.Name))
+			}
+			return nil
+		}), "walking %s", subDir)
+	}
+	for _, bp := range pyProject.BuildSystem.BackendPath {
+		bp = strings.TrimSpace(bp)
+		// NOTE: PEP 517 requires backend-path entries to stay within the source tree.
+		cleanBP := path.Clean(bp)
+		if bp == "" || path.IsAbs(bp) || cleanBP == ".." || strings.HasPrefix(cleanBP, "../") {
+			continue
+		}
+		// NOTE: A "." entry exposes the whole project directory, including tests
+		// and unrelated modules, so only the build-backend module or package is
+		// scanned.
+		if cleanBP != "." {
+			if err := collectDir(path.Join(dir, cleanBP)); err != nil {
+				return nil, err
+			}
+			continue
+		}
+		modFile := path.Join(dir, topMod+".py")
+		if _, err := tree.File(modFile); err == nil {
+			paths = append(paths, modFile)
+		} else if !errors.Is(err, git2.ErrFileNotFound) {
+			return nil, errors.Wrapf(err, "finding %s", modFile)
+		}
+		if err := collectDir(path.Join(dir, topMod)); err != nil {
+			return nil, err
+		}
+	}
+	slices.Sort(paths)
+	return slices.Compact(paths), nil
 }

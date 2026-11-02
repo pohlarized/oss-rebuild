@@ -11,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"net/http"
 	"strings"
 	"testing"
@@ -1185,8 +1186,10 @@ func TestInferCythonRequirement(t *testing.T) {
 	const importsCython = "from Cython.Build import cythonize\n"
 	tests := []struct {
 		name    string
+		dir     string
 		pkg     string
 		setupPy string
+		files   gitxtest.FileContent
 		module  []byte
 		reqs    []string
 		want    string
@@ -1198,12 +1201,91 @@ func TestInferCythonRequirement(t *testing.T) {
 		{name: "NoCythonImport", setupPy: "from setuptools import setup\n", module: elfWithRodata("_cython_3_2_4")},
 		{name: "NoSetupPy", module: elfWithRodata("_cython_3_2_4")},
 		{name: "CythonAlreadyRequired", setupPy: importsCython, module: elfWithRodata("_cython_3_2_4"), reqs: []string{"setuptools", "Cython>=3"}},
+		{
+			name: "InTreeBackendCythonAlreadyDeclared",
+			pkg:  "levenshtein",
+			files: gitxtest.FileContent{
+				"pyproject.toml":       "[build-system]\nrequires = [\"Cython>=3.1.6,<3.3.0\"]\nbuild-backend = \"backend\"\nbackend-path = [\"packaging\"]\n",
+				"packaging/backend.py": importsCython,
+			},
+			module: elfWithRodata("_cython_3_3_0"),
+			reqs:   []string{"setuptools==75.2.0", "Cython>=3.1.6,<3.3.0"},
+		},
+		{
+			name:    "SetupPyIgnoredWithoutSetuptools",
+			pkg:     "levenshtein",
+			setupPy: importsCython,
+			module:  elfWithRodata("_cython_3_3_0"),
+			reqs:    []string{"scikit-build-core==1.0.3", "ninja"},
+		},
+		{
+			name: "InTreeBackendSubmodule",
+			pkg:  "frozenlist",
+			files: gitxtest.FileContent{
+				"pyproject.toml":                       "[build-system]\nrequires = [\"expandvars\", \"setuptools>=47\"]\nbuild-backend = \"pep517_backend.hooks\"\nbackend-path = [\"packaging\"]\n",
+				"packaging/pep517_backend/__init__.py": "",
+				"packaging/pep517_backend/hooks.py":    "from ._backend import build_wheel\n",
+				"packaging/pep517_backend/_backend.py": "from Cython.Build.Cythonize import main as cythonize_main\n",
+			},
+			module: elfWithRodata("_cython_3_0_11"),
+			reqs:   []string{"setuptools==75.2.0", "expandvars"},
+			want:   "Cython==3.0.11",
+		},
+		{
+			name: "InTreeBackendSiblingHelperWithStubSetupPy",
+			dir:  "psycopg_c",
+			pkg:  "psycopg-c",
+			files: gitxtest.FileContent{
+				"psycopg_c/setup.py":                           "from setuptools import setup\nsetup()\n",
+				"psycopg_c/pyproject.toml":                     "[build-system]\nrequires = [\"setuptools>=49.2.0\"]\nbuild-backend = \"cython_backend\"\nbackend-path = [\"build_backend\"]\n",
+				"psycopg_c/build_backend/cython_backend.py":    "from psycopg_build_ext import build_ext\n",
+				"psycopg_c/build_backend/psycopg_build_ext.py": importsCython,
+			},
+			module: elfWithRodata("_cython_3_0_11"),
+			reqs:   []string{"setuptools==75.2.0"},
+			want:   "Cython==3.0.11",
+		},
+		{
+			name: "InTreeBackendWithoutSetuptools",
+			files: gitxtest.FileContent{
+				"pyproject.toml":       "[build-system]\nbuild-backend = \"backend\"\nbackend-path = [\"packaging\"]\n",
+				"packaging/backend.py": importsCython,
+			},
+			module: elfWithRodata("_cython_3_0_11"),
+			reqs:   []string{"wheel==0.44.0"},
+			want:   "Cython==3.0.11",
+		},
+		{
+			name: "InTreeBackendRootPathIgnoresUnrelatedFiles",
+			files: gitxtest.FileContent{
+				"pyproject.toml":          "[build-system]\nbuild-backend = \"pep517_backend.hooks\"\nbackend-path = [\".\"]\n",
+				"pep517_backend/hooks.py": "def build_wheel(wheel_directory, config_settings=None, metadata_directory=None): pass\n",
+				"unrelated.py":            "import cython\n",
+			},
+			module: elfWithRodata("_cython_3_2_4"),
+		},
+		{
+			name: "InTreeBackendNoELFVersion",
+			files: gitxtest.FileContent{
+				"pyproject.toml":                       "[build-system]\nbuild-backend = \"pep517_backend.hooks\"\nbackend-path = [\"packaging\"]\n",
+				"packaging/pep517_backend/_backend.py": importsCython,
+			},
+			module: elfWithRodata("libc.so.6"),
+		},
+		{
+			name: "MalformedPyprojectIgnored",
+			files: gitxtest.FileContent{
+				"pyproject.toml": "[build-system]\nbuild-backend = \"backend\n",
+			},
+			module: elfWithRodata("_cython_3_2_4"),
+		},
 		{name: "FlitCore", setupPy: importsCython, module: elfWithRodata("_cython_3_2_4"), reqs: []string{"setuptools", "flit_core>=3.12,<4"}},
 		{name: "CythonItself", pkg: "Cython", setupPy: importsCython, module: elfWithRodata("_cython_3_2_4")},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			files := gitxtest.FileContent{"README.md": ""}
+			maps.Copy(files, tc.files)
 			if tc.setupPy != "" {
 				files["setup.py"] = tc.setupPy
 			}
@@ -1217,7 +1299,7 @@ func TestInferCythonRequirement(t *testing.T) {
 			if tc.reqs != nil {
 				reqs = tc.reqs
 			}
-			got, err := inferCythonRequirement(tree, "", pkg, zr, reqs)
+			got, err := inferCythonRequirement(tree, tc.dir, pkg, zr, reqs)
 			if err != nil {
 				t.Fatalf("inferCythonRequirement() returned error: %v", err)
 			}
