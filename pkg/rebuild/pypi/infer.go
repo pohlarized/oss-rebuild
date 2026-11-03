@@ -552,7 +552,8 @@ func inferBuild(ctx context.Context, t rebuild.Target, mux rebuild.RegistryMux, 
 		if err != nil {
 			return nil, errors.Wrap(err, "extracting cibuildwheel specs")
 		}
-		buildRoot, err := inferBuildRoot(zr, tree, usesCibw)
+		ws := readWheelELF(zr)
+		buildRoot, err := inferBuildRootFromSources(ws, tree, usesCibw)
 		if err != nil {
 			return nil, errors.Wrap(err, "inferring build root")
 		}
@@ -571,6 +572,7 @@ func inferBuild(ctx context.Context, t rebuild.Target, mux rebuild.RegistryMux, 
 			RegistryTime: a.UploadTime,
 			BaseImage:    inferBaseImage(platform.CibuildwheelPins, tags.Platform, a.UploadTime, cibwSpecs...),
 			BuildRoot:    buildRoot,
+			BuildEnvPath: inferBuildEnvPathFromSources(ws),
 		}, nil
 	} else {
 		return &PureWheelBuild{
@@ -624,23 +626,37 @@ func inferBaseImage(pins platform.CibuildwheelPinTable, platformTag string, uplo
 	return ref
 }
 
+// readWheelELF extracts the DWARF and .rodata paths of the wheel's extension
+// modules and logs any sections that could not be read.
+func readWheelELF(zr *zip.Reader) wheelSources {
+	ws, skipped := readWheelSources(zr)
+	if len(skipped) > 0 {
+		log.Printf("Skipped %d sections that could not be read while inspecting wheel ELF modules, first: %v", len(skipped), skipped[0])
+	}
+	return ws
+}
+
 // inferBuildRoot returns the absolute path that upstream built the repository
 // at, or "" to build in the checkout. In order of precedence:
 //  1. The root recorded in DWARF debug info.
 //  2. The root recorded in .rodata source paths.
 //  3. cibuildwheel's project directory, if the project's CI runs cibuildwheel.
 func inferBuildRoot(zr *zip.Reader, tree *git2.Tree, usesCibuildwheel bool) (string, error) {
-	files, err := repoFiles(tree)
-	if err != nil {
-		return "", errors.Wrap(err, "listing repository files")
-	}
-	dwarfRoots, rodataRoots, skipped := candidateRoots(zr, files)
-	if len(skipped) > 0 {
-		log.Printf("Skipped %d sections that could not be read while inferring the build root, first: %v", len(skipped), skipped[0])
-	}
-	root, source := mostCommonRoot(dwarfRoots), "DWARF"
-	if root == "" {
-		root, source = mostCommonRoot(rodataRoots), ".rodata"
+	return inferBuildRootFromSources(readWheelELF(zr), tree, usesCibuildwheel)
+}
+
+func inferBuildRootFromSources(ws wheelSources, tree *git2.Tree, usesCibuildwheel bool) (string, error) {
+	var root, source string
+	if len(ws.units) > 0 || len(ws.rodataPaths) > 0 {
+		files, err := repoFiles(tree)
+		if err != nil {
+			return "", errors.Wrap(err, "listing repository files")
+		}
+		dwarfRoots, rodataRoots := ws.candidateRoots(files)
+		root, source = mostCommonRoot(dwarfRoots), "DWARF"
+		if root == "" {
+			root, source = mostCommonRoot(rodataRoots), ".rodata"
+		}
 	}
 	switch {
 	case root == checkoutDir:
@@ -655,6 +671,14 @@ func inferBuildRoot(zr *zip.Reader, tree *git2.Tree, usesCibuildwheel bool) (str
 	default:
 		return "", nil
 	}
+}
+
+func inferBuildEnvPathFromSources(ws wheelSources) string {
+	envPath, source := ws.selectBuildEnvPath()
+	if envPath != "" {
+		log.Printf("Using build env path %s from %s", envPath, source)
+	}
+	return envPath
 }
 
 var (
