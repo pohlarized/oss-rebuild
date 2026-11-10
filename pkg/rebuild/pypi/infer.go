@@ -692,6 +692,9 @@ var (
 	// NOTE: Only opt-in names match. Variables such as CYTHON_TRACE and
 	// CYTHON_ANNOTATE change what gets compiled and must stay unset.
 	setupCythonGatePat = re.MustCompile(`os\.(?:getenv|environ\.get)\(\s*["']([A-Z_][A-Z0-9_]*_(?:USE_CYTHON|WITH_CYTHON|CYTHON_ABI3))["']`)
+	// setupOptionalCibuildwheelPat matches a setup.py whose extensions are optional
+	// unless CIBUILDWHEEL is set, as dulwich's Rust extensions are.
+	setupOptionalCibuildwheelPat = re.MustCompile(`optional\s*=\s*[^\n]*os\.(?:getenv|environ\.get)\(\s*["']CIBUILDWHEEL["']`)
 )
 
 // inferCythonRequirement pins Cython to the version the wheel's extension
@@ -735,6 +738,11 @@ func inferSetupBuildEnv(tree *git2.Tree, dir string, zr *zip.Reader, tags WheelT
 			}
 			env[m[1]] = "1"
 		}
+	}
+	// NOTE: cibuildwheel sets CIBUILDWHEEL=1 for the builds it runs. Without it,
+	// the build skips an optional extension that fails to compile.
+	if setupOptionalCibuildwheelPat.MatchString(src) && slices.ContainsFunc(zr.File, func(f *zip.File) bool { return isExtensionModule(f.Name) }) {
+		env["CIBUILDWHEEL"] = "1"
 	}
 	if len(env) == 0 {
 		return nil, nil

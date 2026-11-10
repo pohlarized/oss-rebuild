@@ -1227,6 +1227,8 @@ LIMITED_API = os.getenv("CHARSET_NORMALIZER_CYTHON_ABI3") == "1"
 		return zipEntry(name, string(elfWithRodata(rodata...)))
 	}
 	cythonModule := module("pkg/mod.cpython-312-x86_64-linux-gnu.so", "_cython_3_2_9")
+	const dulwichSetup = `optional = os.environ.get("CIBUILDWHEEL", "0") != "1"
+`
 	tests := []struct {
 		name    string
 		files   gitxtest.FileContent
@@ -1276,6 +1278,17 @@ linetrace = os.environ.get("CYTHON_TRACE") == "1"
 			files:   gitxtest.FileContent{"setup.py": charsetNormalizerSetup},
 			modules: []archive.ZipEntry{cythonModule},
 			reqs:    []string{"setuptools", "flit_core>=3.12,<4"},
+		},
+		{
+			name:    "OptionalUnlessCibuildwheel",
+			files:   gitxtest.FileContent{"setup.py": dulwichSetup},
+			modules: []archive.ZipEntry{module("dulwich/_objects.cpython-312-x86_64-linux-gnu.so")},
+			want:    map[string]string{"CIBUILDWHEEL": "1"},
+		},
+		{
+			name:    "OptionalUnlessCibuildwheelWithoutModules",
+			files:   gitxtest.FileContent{"setup.py": dulwichSetup},
+			modules: []archive.ZipEntry{zipEntry("dulwich/__init__.py", "")},
 		},
 	}
 	for _, tc := range tests {
