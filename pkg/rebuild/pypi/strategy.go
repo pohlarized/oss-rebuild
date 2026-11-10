@@ -4,6 +4,7 @@
 package pypi
 
 import (
+	"maps"
 	"path"
 	re "regexp"
 	"slices"
@@ -148,6 +149,9 @@ type PlatformWheelBuild struct {
 	BuildRoot string `json:"build_root,omitempty" yaml:"build_root,omitempty"`
 	// BuildEnvPath is the isolated virtual environment path build dependencies are installed into, when set.
 	BuildEnvPath string `json:"build_env_path,omitempty" yaml:"build_env_path,omitempty"`
+	// BuildEnv holds environment variables exported for the wheel build only,
+	// such as the switches that opt into compiling extension modules.
+	BuildEnv map[string]string `json:"build_env,omitempty" yaml:"build_env,omitempty"`
 }
 
 var _ rebuild.Strategy = &PlatformWheelBuild{}
@@ -169,8 +173,15 @@ const (
 	venvDir = "/deps"
 )
 
-// buildPathPat matches absolute paths of characters that need no shell quoting.
-var buildPathPat = re.MustCompile(`^(/[A-Za-z0-9._+,@-]+)+$`)
+var (
+	// buildPathPat matches absolute paths of characters that need no shell quoting.
+	buildPathPat = re.MustCompile(`^(/[A-Za-z0-9._+,@-]+)+$`)
+	// buildEnvNamePat matches a POSIX shell variable name.
+	buildEnvNamePat = re.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
+	// buildEnvValuePat excludes quotes, expansions and newlines so a value
+	// cannot escape the single quotes it is exported in.
+	buildEnvValuePat = re.MustCompile(`^[A-Za-z0-9_./:=+,@ -]*$`)
+)
 
 // validateBuildPath rejects paths that the build steps cannot use.
 func validateBuildPath(p string) error {
@@ -197,6 +208,19 @@ func (b *PlatformWheelBuild) ToWorkflow() (*rebuild.WorkflowStrategy, error) {
 	}
 	if err := validateBuildPath(b.BuildEnvPath); err != nil {
 		return nil, errors.Wrap(err, "validating build env path")
+	}
+	var buildEnvJSON string
+	if len(b.BuildEnv) > 0 {
+		for _, k := range slices.Sorted(maps.Keys(b.BuildEnv)) {
+			v := b.BuildEnv[k]
+			if !buildEnvNamePat.MatchString(k) {
+				return nil, errors.Errorf("invalid build environment variable name %q", k)
+			}
+			if !buildEnvValuePat.MatchString(v) {
+				return nil, errors.Errorf("invalid build environment variable value %q for %s", v, k)
+			}
+		}
+		buildEnvJSON = flow.MustToJSON(b.BuildEnv)
 	}
 	venv := venvDir
 	if b.BuildEnvPath != "" {
@@ -244,6 +268,7 @@ func (b *PlatformWheelBuild) ToWorkflow() (*rebuild.WorkflowStrategy, error) {
 				"locator":    venv + "/bin/",
 				"wheelCli":   venv + "/wheel-cli",
 				"venvOnPath": needsVenvOnPath(b.Requirements),
+				"buildEnv":   buildEnvJSON,
 				// auditwheel repair --plat requires a single policy tag rather than a compressed
 				// tag set, and the highest tag matches the build container policy.
 				"highestPlatformTag": platform.HighestLibcTagString(b.PlatformTag),
@@ -411,6 +436,10 @@ var toolkit = []*flow.Tool{
 		Name: "pypi/build/platform-wheel",
 		Steps: []flow.Step{{
 			Runs: textwrap.Dedent(`
+				{{if .With.buildEnv -}}
+				{{range $k, $v := .With.buildEnv | fromJSON}}export {{$k}}='{{$v}}'
+				{{end -}}
+				{{end -}}
 				{{if .With.buildRoot -}}
 				{{- /* NOTE: No -p on the root so the copy can't merge into an existing directory. */ -}}
 				mkdir -p $(dirname {{.With.buildRoot}})
