@@ -12,6 +12,7 @@ import (
 	"io/fs"
 	"log"
 	"maps"
+	"net/url"
 	"path"
 	re "regexp"
 	"slices"
@@ -128,17 +129,37 @@ func repoFromOtherLinks(info pypireg.Info) string {
 }
 
 // repoNamedAfter returns a picker for the first of otherRepoLinks named after
-// pkg, allowing an extra py or python affix, as in pycasbin or crate-python.
+// pkg or its org-repo pair, allowing an extra py or python affix, as in
+// pycasbin, crate-python, or apache/beam for apache-beam.
 func repoNamedAfter(pkg string) func(pypireg.Info) string {
 	named := re.MustCompile(`^(?:py-?|python-)?` + re.QuoteMeta(pypireg.NormalizedName(pkg)) + `(?:-py|-python)?$`)
 	return func(info pypireg.Info) string {
 		for _, repo := range otherRepoLinks(info) {
-			if named.MatchString(pypireg.NormalizedName(strings.TrimSuffix(path.Base(repo), ".git"))) {
+			if repoMatchesName(repo, named) {
 				return repo
 			}
 		}
 		return ""
 	}
+}
+
+func repoMatchesName(repo string, named *re.Regexp) bool {
+	if named.MatchString(pypireg.NormalizedName(strings.TrimSuffix(path.Base(repo), ".git"))) {
+		return true
+	}
+	canon, err := uri.CanonicalizeRepoURI(repo)
+	if err != nil {
+		return false
+	}
+	u, err := url.Parse(canon)
+	if err != nil {
+		return false
+	}
+	parts := strings.Split(strings.Trim(u.Path, "/"), "/")
+	if len(parts) < 2 {
+		return false
+	}
+	return named.MatchString(pypireg.NormalizedName(parts[len(parts)-2] + "-" + parts[len(parts)-1]))
 }
 
 // otherRepoLinks lists the repos on a known host linked under any other name,

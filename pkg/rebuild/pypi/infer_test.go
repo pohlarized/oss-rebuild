@@ -369,11 +369,12 @@ func wheelZipReader(t *testing.T, pkg, version, wheel, metadata string) *zip.Rea
 }
 
 func TestInferRepo(t *testing.T) {
-	target := rebuild.Target{Ecosystem: rebuild.PyPI, Package: "charset-normalizer", Version: "2.0.12", Artifact: "charset_normalizer-2.0.12-py3-none-any.whl"}
+	defaultTarget := rebuild.Target{Ecosystem: rebuild.PyPI, Package: "charset-normalizer", Version: "2.0.12", Artifact: "charset_normalizer-2.0.12-py3-none-any.whl"}
 	for _, tc := range []struct {
-		name  string
-		calls []httpxtest.Call
-		want  string
+		name   string
+		target rebuild.Target
+		calls  []httpxtest.Call
+		want   string
 	}{
 		{
 			name: "release links win over the project's",
@@ -440,6 +441,33 @@ func TestInferRepo(t *testing.T) {
 			want: "https://github.com/jawah/charset-normalizer-python",
 		},
 		{
+			name:   "PrefersOrgRepoNamedAfterPackage",
+			target: rebuild.Target{Ecosystem: rebuild.PyPI, Package: "apache-beam", Version: "2.70.0"},
+			calls: []httpxtest.Call{
+				{URL: "https://pypi.org/pypi/apache-beam/2.70.0/json", Response: &http.Response{StatusCode: 200, Body: httpxtest.Body(`{"info":{"name":"apache-beam","version":"2.70.0","home_page":"https://beam.apache.org","description":"Runners include [Flink](https://github.com/dataArtisans/flink-dataflow), [Jet](https://github.com/hazelcast/hazelcast-jet), and [Beam](https://github.com/apache/beam)."}}`)}},
+				{URL: "https://pypi.org/pypi/apache-beam/json", Response: &http.Response{StatusCode: 200, Body: httpxtest.Body(`{"info":{"name":"apache-beam","home_page":"https://beam.apache.org"}}`)}},
+			},
+			want: "https://github.com/apache/beam",
+		},
+		{
+			name:   "PrefersOrgRepoNormalized",
+			target: rebuild.Target{Ecosystem: rebuild.PyPI, Package: "google-re2", Version: "1.1.20251105"},
+			calls: []httpxtest.Call{
+				{URL: "https://pypi.org/pypi/google-re2/1.1.20251105/json", Response: &http.Response{StatusCode: 200, Body: httpxtest.Body(`{"info":{"name":"google-re2","version":"1.1.20251105","description":"Bindings built with https://github.com/pybind/pybind11 from https://github.com/google/re2"}}`)}},
+				{URL: "https://pypi.org/pypi/google-re2/json", Response: &http.Response{StatusCode: 200, Body: httpxtest.Body(`{"info":{"name":"google-re2"}}`)}},
+			},
+			want: "https://github.com/google/re2",
+		},
+		{
+			name:   "FallsBackWhenOrgRepoDoesNotMatch",
+			target: rebuild.Target{Ecosystem: rebuild.PyPI, Package: "apache-beam", Version: "2.70.0"},
+			calls: []httpxtest.Call{
+				{URL: "https://pypi.org/pypi/apache-beam/2.70.0/json", Response: &http.Response{StatusCode: 200, Body: httpxtest.Body(`{"info":{"name":"apache-beam","version":"2.70.0","home_page":"https://beam.apache.org","description":"See https://github.com/dataArtisans/flink-dataflow and https://github.com/hazelcast/hazelcast-jet"}}`)}},
+				{URL: "https://pypi.org/pypi/apache-beam/json", Response: &http.Response{StatusCode: 200, Body: httpxtest.Body(`{"info":{"name":"apache-beam","home_page":"https://beam.apache.org"}}`)}},
+			},
+			want: "https://github.com/dataartisans/flink-dataflow",
+		},
+		{
 			name: "links under other names are tried in name order",
 			calls: []httpxtest.Call{
 				{URL: "https://pypi.org/pypi/charset-normalizer/2.0.12/json", Response: &http.Response{StatusCode: 200, Body: httpxtest.Body(`{"info":{"name":"charset-normalizer","version":"2.0.12","project_urls":{"Tracker":"https://github.com/jawah/charset_normalizer/issues","Bug Reports":"https://github.com/ousret/charset_normalizer/issues"}}}`)}},
@@ -449,6 +477,10 @@ func TestInferRepo(t *testing.T) {
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
+			target := tc.target
+			if target.Package == "" {
+				target = defaultTarget
+			}
 			mux := rebuild.RegistryMux{PyPI: pypireg.HTTPRegistry{Client: &httpxtest.MockClient{Calls: tc.calls, URLValidator: httpxtest.NewURLValidator(t)}}}
 			got, err := Rebuilder{}.InferRepo(context.Background(), target, mux)
 			if err != nil {
