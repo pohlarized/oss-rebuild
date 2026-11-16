@@ -56,6 +56,13 @@ func TestInferPythonVersion(t *testing.T) {
 		{"exact pin past fix", []string{"setuptools==70.0.0"}, postFix, ""},
 		{"compound constraint", []string{"setuptools>=40.0,<60.0"}, postFix, "3.11"},
 		{"case, extras and marker", []string{"SetupTools[core]<60; python_version != '3.3'"}, postFix, "3.11"},
+		{"CompatibleReleaseBelowFix", []string{"setuptools~=59.0"}, postFix, "3.11"},
+		{"CompatibleReleasePatchBelowFix", []string{"setuptools~=66.0.0"}, postFix, "3.11"},
+		{"CompatibleReleaseSpanningFix", []string{"setuptools~=66.0"}, postFix, ""},
+		{"CompatibleReleaseAtFix", []string{"setuptools~=66.1.0"}, postFix, ""},
+		{"ReconciledCompoundCeilingBelowFix", []string{"setuptools>=40,<=56.2.0"}, postFix, "3.11"},
+		{"TwoSegmentInclusiveBoundAtFix", []string{"setuptools<=66.1"}, postFix, ""},
+		{"ArbitraryEqualityBelowFix", []string{"setuptools===58.1.0"}, postFix, "3.11"},
 		{"setuptools-scm is not setuptools", []string{"setuptools-scm<6.0"}, postFix, ""},
 		{"post-fix flit", []string{"flit_core>=3.2,<4"}, postFix, ""},
 	}
@@ -359,6 +366,138 @@ func TestMergeRequirements(t *testing.T) {
 			reqs:      []string{"flit_core==3.9.0"},
 			buildReqs: []string{"Flit-Core>=3.2", "setuptools_scm", "SetupTools-SCM"},
 			want:      []string{"flit_core==3.9.0", "setuptools_scm"},
+		},
+		{
+			name:      "CompatibleReleaseOverridesSetuptoolsCeiling",
+			reqs:      []string{"wheel==0.44.0", "setuptools<=67.7.2"},
+			buildReqs: []string{"numpy~=2.0", "setuptools~=68.1.0"},
+			want:      []string{"wheel==0.44.0", "setuptools~=68.1.0", "numpy~=2.0"},
+		},
+		{
+			name:      "CompatibleReleaseAbove56CeilingPrefersDeclared",
+			reqs:      []string{"setuptools<=56.2.0"},
+			buildReqs: []string{"setuptools~=58.0"},
+			want:      []string{"setuptools~=58.0"},
+		},
+		{
+			name:      "CompatibleReleaseSpanningCeilingIntersects",
+			reqs:      []string{"setuptools<=56.2.0"},
+			buildReqs: []string{"setuptools~=56.0"},
+			want:      []string{"setuptools~=56.0,<=56.2.0"},
+		},
+		{
+			name:      "CompatibleReleaseBelowCeilingKeepsDeclared",
+			reqs:      []string{"setuptools<=56.2.0"},
+			buildReqs: []string{"setuptools~=56.1.0"},
+			want:      []string{"setuptools~=56.1.0"},
+		},
+		{
+			name:      "UpperBoundAboveCeilingIntersects",
+			reqs:      []string{"wheel==0.40.0", "setuptools<=56.2.0"},
+			buildReqs: []string{"setuptools>=40,<60"},
+			want:      []string{"wheel==0.40.0", "setuptools>=40,<60,<=56.2.0"},
+		},
+		{
+			name:      "InclusiveUpperBoundAboveCeilingIntersects",
+			reqs:      []string{"setuptools<=67.7.2"},
+			buildReqs: []string{"setuptools<=70.0"},
+			want:      []string{"setuptools<=70.0,<=67.7.2"},
+		},
+		{
+			name:      "UpperBoundBelowCeilingKeepsDeclared",
+			reqs:      []string{"setuptools<=56.2.0"},
+			buildReqs: []string{"setuptools>=40,<50"},
+			want:      []string{"setuptools>=40,<50"},
+		},
+		{
+			name:      "InclusiveUpperBoundAtCeilingKeepsDeclared",
+			reqs:      []string{"setuptools<=56.2.0"},
+			buildReqs: []string{"setuptools<=56.2.0"},
+			want:      []string{"setuptools<=56.2.0"},
+		},
+		{
+			name:      "LowerBoundIntersectsSetuptoolsCeiling",
+			reqs:      []string{"wheel==0.37.1", "setuptools<=67.7.2"},
+			buildReqs: []string{"setuptools>=43"},
+			want:      []string{"wheel==0.37.1", "setuptools>=43,<=67.7.2"},
+		},
+		{
+			name:      "InclusiveBoundAtCeilingIntersects",
+			reqs:      []string{"setuptools<=67.7.2"},
+			buildReqs: []string{"setuptools>=67.7.2"},
+			want:      []string{"setuptools>=67.7.2,<=67.7.2"},
+		},
+		{
+			name:      "ExclusiveBoundAtCeilingPrefersDeclared",
+			reqs:      []string{"setuptools<=67.7.2"},
+			buildReqs: []string{"setuptools>67.7.2"},
+			want:      []string{"setuptools>67.7.2"},
+		},
+		{
+			name:      "ExclusiveTwoSegmentBoundAtCeilingPrefersDeclared",
+			reqs:      []string{"setuptools<=56.2.0"},
+			buildReqs: []string{"setuptools>56.2"},
+			want:      []string{"setuptools>56.2"},
+		},
+		{
+			name:      "SpacedCompoundLowerBoundIntersectsSetuptoolsCeiling",
+			reqs:      []string{"setuptools<=67.7.2"},
+			buildReqs: []string{"setuptools >= 43.0, != 60.0"},
+			want:      []string{"setuptools>=43.0,!=60.0,<=67.7.2"},
+		},
+		{
+			name:      "LowerBoundAboveSetuptoolsCeilingPrefersDeclared",
+			reqs:      []string{"setuptools<=67.7.2"},
+			buildReqs: []string{"setuptools>=68.0"},
+			want:      []string{"setuptools>=68.0"},
+		},
+		{
+			name:      "ExactEqualityOverridesSetuptoolsCeiling",
+			reqs:      []string{"setuptools<=67.7.2"},
+			buildReqs: []string{"setuptools==68.0.0"},
+			want:      []string{"setuptools==68.0.0"},
+		},
+		{
+			name:      "ArbitraryEqualityOverridesSetuptoolsCeiling",
+			reqs:      []string{"setuptools<=67.7.2"},
+			buildReqs: []string{"setuptools===68.0.0"},
+			want:      []string{"setuptools===68.0.0"},
+		},
+		{
+			name:      "DirectURLOverridesSetuptoolsCeiling",
+			reqs:      []string{"setuptools<=67.7.2"},
+			buildReqs: []string{"setuptools @ https://example.com/setuptools-70.0.0-py3-none-any.whl"},
+			want:      []string{"setuptools @ https://example.com/setuptools-70.0.0-py3-none-any.whl"},
+		},
+		{
+			name:      "MarkerQualifiedSetuptoolsPreservesCeiling",
+			reqs:      []string{"setuptools<=67.7.2"},
+			buildReqs: []string{"setuptools>=68; python_version>='3.12'"},
+			want:      []string{"setuptools<=67.7.2"},
+		},
+		{
+			name:      "ExtrasFormIntersectsSetuptoolsCeiling",
+			reqs:      []string{"setuptools<=67.7.2"},
+			buildReqs: []string{"setuptools[core]>=40"},
+			want:      []string{"setuptools[core]>=40,<=67.7.2"},
+		},
+		{
+			name:      "ParenthesizedFormIntersectsSetuptoolsCeiling",
+			reqs:      []string{"setuptools<=67.7.2"},
+			buildReqs: []string{"setuptools (>=40)"},
+			want:      []string{"setuptools>=40,<=67.7.2"},
+		},
+		{
+			name:      "BareSetuptoolsPreservesSetuptoolsCeiling",
+			reqs:      []string{"wheel==0.40.0", "setuptools<=67.7.2"},
+			buildReqs: []string{"setuptools", "wheel"},
+			want:      []string{"wheel==0.40.0", "setuptools<=67.7.2"},
+		},
+		{
+			name:      "BareThenLowerBoundReconcilesSetuptoolsCeiling",
+			reqs:      []string{"setuptools<=67.7.2"},
+			buildReqs: []string{"setuptools", "setuptools>=43"},
+			want:      []string{"setuptools>=43,<=67.7.2"},
 		},
 	}
 	for _, tc := range tests {
@@ -1302,5 +1441,103 @@ func TestMaturinTakesTarget(t *testing.T) {
 		if got := maturinTakesTarget(tc.reqs); got != tc.want {
 			t.Errorf("maturinTakesTarget(%v) = %t, want %t", tc.reqs, got, tc.want)
 		}
+	}
+}
+
+func TestInferStrategySetuptoolsCeilingSoundness(t *testing.T) {
+	tests := []struct {
+		name      string
+		pkg       string
+		version   string
+		filename  string
+		repoYAML  string
+		wheelFile string
+		metadata  string
+		wantDir   string
+		wantReqs  []string
+	}{
+		{
+			name:     "LowerBoundSetuptoolsOnAbi3Wheel",
+			pkg:      "psutil",
+			version:  "6.1.0",
+			filename: "psutil-6.1.0-cp36-abi3-manylinux2014_x86_64.whl",
+			repoYAML: `commits:
+  - id: release-commit
+    tag: release-6.1.0
+    files:
+      LICENSE: |
+        BSD-3-Clause
+      pyproject.toml: |
+        [project]
+        name = "psutil"
+        version = "6.1.0"
+        [build-system]
+        requires = ["setuptools>=43"]
+`,
+			wheelFile: "Wheel-Version: 1.0\nGenerator: bdist_wheel (0.37.1)\nRoot-Is-Purelib: false\nTag: cp36-abi3-manylinux2014_x86_64\n",
+			metadata:  "Metadata-Version: 2.1\nName: psutil\nVersion: 6.1.0\nLicense-File: LICENSE\n",
+			wantDir:   "",
+			wantReqs:  []string{"wheel==0.37.1", "setuptools>=43,<=67.7.2"},
+		},
+		{
+			name:     "CompatibleSetuptoolsOverridesCeiling",
+			pkg:      "ml-dtypes",
+			version:  "0.4.1",
+			filename: "ml_dtypes-0.4.1-cp311-cp311-manylinux2014_x86_64.whl",
+			repoYAML: `commits:
+  - id: release-commit
+    tag: v0.4.1
+    files:
+      LICENSE: |
+        Apache-2.0
+      pyproject.toml: |
+        [project]
+        name = "ml_dtypes"
+        version = "0.4.1"
+        [build-system]
+        requires = ["numpy~=2.0", "setuptools~=68.1.0"]
+`,
+			wheelFile: "Wheel-Version: 1.0\nGenerator: bdist_wheel (0.44.0)\nRoot-Is-Purelib: false\nTag: cp311-cp311-manylinux2014_x86_64\n",
+			metadata:  "Metadata-Version: 2.1\nName: ml_dtypes\nVersion: 0.4.1\nLicense-File: LICENSE\n",
+			wantDir:   "",
+			wantReqs:  []string{"wheel==0.44.0", "setuptools~=68.1.0", "numpy~=2.0"},
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			repo := must(gitxtest.CreateRepoFromYAML(tc.repoYAML, nil))
+			distInfo := expectedDistInfoDir(tc.pkg, tc.version)
+			wheelBuf := must(archivetest.ZipFile([]archive.ZipEntry{
+				{FileHeader: &zip.FileHeader{Name: distInfo + "/WHEEL"}, Body: []byte(tc.wheelFile)},
+				{FileHeader: &zip.FileHeader{Name: distInfo + "/METADATA"}, Body: []byte(tc.metadata)},
+			}))
+			wheelURL := "https://files.pythonhosted.org/" + tc.filename
+			releaseURL := fmt.Sprintf("https://pypi.org/pypi/%s/%s/json", tc.pkg, tc.version)
+			releaseJSON := fmt.Sprintf(`{"info":{"name":%q,"version":%q},"urls":[{"filename":%q,"url":%q,"size":%d,"upload_time_iso_8601":"2024-10-17T00:00:00Z"}]}`, tc.pkg, tc.version, tc.filename, wheelURL, wheelBuf.Len())
+			mux := rebuild.RegistryMux{PyPI: pypireg.HTTPRegistry{Client: &httpxtest.MockClient{
+				Calls: []httpxtest.Call{
+					{URL: releaseURL, Response: &http.Response{StatusCode: 200, Body: httpxtest.Body(releaseJSON)}},
+					{URL: releaseURL, Response: &http.Response{StatusCode: 200, Body: httpxtest.Body(releaseJSON)}},
+					{URL: wheelURL, Response: &http.Response{StatusCode: 200, Body: io.NopCloser(bytes.NewReader(wheelBuf.Bytes()))}},
+				},
+				URLValidator: httpxtest.NewURLValidator(t),
+			}}}
+			rcfg := &rebuild.RepoConfig{Repo: gitx.Repo{Repository: repo.Repository, Storer: repo.Storer}, URI: "https://github.com/example/" + tc.pkg}
+			target := rebuild.Target{Ecosystem: rebuild.PyPI, Package: tc.pkg, Version: tc.version, Artifact: tc.filename}
+			strat, err := Rebuilder{}.InferStrategy(context.Background(), target, mux, rcfg, nil)
+			if err != nil {
+				t.Fatalf("InferStrategy() unexpected error: %v", err)
+			}
+			got, ok := strat.(*PlatformWheelBuild)
+			if !ok {
+				t.Fatalf("InferStrategy() returned %T, want *PlatformWheelBuild", strat)
+			}
+			if got.Location.Dir != tc.wantDir {
+				t.Errorf("PlatformWheelBuild.Location.Dir = %q, want %q", got.Location.Dir, tc.wantDir)
+			}
+			if diff := cmp.Diff(tc.wantReqs, got.Requirements); diff != "" {
+				t.Errorf("PlatformWheelBuild.Requirements diff (-want +got):\n%s", diff)
+			}
+		})
 	}
 }

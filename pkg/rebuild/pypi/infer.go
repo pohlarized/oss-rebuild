@@ -15,6 +15,7 @@ import (
 	"path"
 	re "regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -337,12 +338,17 @@ func hasZipDir(dir string, zr *zip.Reader) bool {
 	return false
 }
 
+// reqNameDelims terminates a PEP 508 distribution name before extras, version
+// specifiers, direct references, or environment markers.
+// https://packaging.python.org/en/latest/specifications/dependency-specifiers/#grammar
+const reqNameDelims = "=<>~!;[(@ \t"
+
 // requirementName extracts the normalized distribution name from a dependency
 // specifier, dropping extras, version specifiers, direct references and
 // markers, so "SetupTools[core]<=67.7.2" yields "setuptools".
 // https://packaging.python.org/en/latest/specifications/dependency-specifiers/#grammar
 func requirementName(req string) string {
-	fields := strings.FieldsFunc(req, func(r rune) bool { return strings.ContainsRune("=<>~!;[(@ \t", r) })
+	fields := strings.FieldsFunc(req, func(r rune) bool { return strings.ContainsRune(reqNameDelims, r) })
 	if len(fields) == 0 {
 		return ""
 	}
@@ -387,30 +393,52 @@ func implicitRequirements(reqs []string) []string {
 	return nil
 }
 
+// NOTE: Must match the format setuptoolsCeiling emits so mergeRequirements
+// recognizes metadata-era setuptools guesses.
+const setuptoolsCeilingPrefix = "setuptools<="
+
 // mergeRequirements appends the buildReqs entries whose package does not
 // already appear in reqs, also collapsing repeats within buildReqs itself. A
 // bare package name in reqs acts as a placeholder and is replaced by the first
-// matching buildReqs entry. Entries of one package with different environment
-// markers are all kept, as each takes effect in a different environment and
-// the installer evaluates them against the build interpreter.
+// matching buildReqs entry, while a metadata-era setuptools<=Y ceiling is
+// reconciled with any unconditional declared setuptools version specifier.
+// Entries of one package with different environment markers are all kept, as
+// each takes effect in a different environment and the installer evaluates them
+// against the build interpreter.
 // https://packaging.python.org/en/latest/specifications/dependency-specifiers/#environment-markers
 func mergeRequirements(reqs, buildReqs []string) []string {
 	reqs = slices.Clone(reqs)
 	placeholder := make(map[string]int)
 	pinned := make(map[string]bool)
+	ceilingIdx := -1
+	var ceilingVer string
 	for i, req := range reqs {
 		name := requirementName(req)
 		if name == req {
 			placeholder[name] = i
 			continue
 		}
+		if ver, ok := strings.CutPrefix(strings.TrimSpace(req), setuptoolsCeilingPrefix); ok && numericVersionPat.MatchString(ver) {
+			ceilingIdx = i
+			ceilingVer = ver
+		}
 		pinned[name] = true
 	}
 	seen := make(map[string]bool)
 	for _, newReq := range buildReqs {
 		pkg := requirementName(newReq)
+		if pkg == "" {
+			continue
+		}
+		if pkg == "setuptools" && ceilingIdx != -1 {
+			if merged, ok := reconcileSetuptoolsCeiling(ceilingVer, newReq); ok {
+				reqs[ceilingIdx] = merged
+				ceilingIdx = -1
+			}
+			continue
+		}
 		key := pkg + ";" + requirementMarker(newReq)
-		if pkg == "" || pinned[pkg] || seen[key] {
+		if pinned[pkg] || seen[key] {
 			continue
 		}
 		seen[key] = true
@@ -422,6 +450,127 @@ func mergeRequirements(reqs, buildReqs []string) []string {
 		reqs = append(reqs, newReq)
 	}
 	return reqs
+}
+
+// PEP 440 version specifier clause grammar.
+// https://packaging.python.org/en/latest/specifications/version-specifiers/#version-specifiers
+var pep440ClausePat = re.MustCompile(`^(===|==|~=|!=|<=|>=|<|>)\s*([^\s,]+)$`)
+
+// reconcileSetuptoolsCeiling combines a metadata-era setuptools<=ceilingVer
+// guess with an unconditional declared setuptools requirement from project
+// build files. It returns false when newReq carries no unconditional version
+// constraint, such as a bare package name or a marker-qualified specifier.
+func reconcileSetuptoolsCeiling(ceilingVer, newReq string) (string, bool) {
+	trimmed := strings.TrimSpace(newReq)
+	if requirementName(trimmed) != "setuptools" || requirementMarker(trimmed) != "" {
+		return "", false
+	}
+	if strings.Contains(trimmed, "@") {
+		return trimmed, true
+	}
+	nameEnd := strings.IndexAny(trimmed, reqNameDelims)
+	if nameEnd == -1 {
+		return "", false
+	}
+	rest := strings.TrimSpace(trimmed[nameEnd:])
+	var extras string
+	if strings.HasPrefix(rest, "[") {
+		closeIdx := strings.IndexByte(rest, ']')
+		if closeIdx == -1 {
+			return trimmed, true
+		}
+		extras = rest[:closeIdx+1]
+		rest = strings.TrimSpace(rest[closeIdx+1:])
+	}
+	if strings.HasPrefix(rest, "(") {
+		if !strings.HasSuffix(rest, ")") {
+			return trimmed, true
+		}
+		rest = strings.TrimSpace(rest[1 : len(rest)-1])
+	}
+	if rest == "" {
+		return "", false
+	}
+	clauses := strings.Split(rest, ",")
+	normalized := make([]string, 0, len(clauses)+1)
+	alreadyCapped := false
+	// NOTE: Intersect compatible bounds with <=ceilingVer so declared ranges
+	// above the metadata-era ceiling (such as >=40,<60 or ~=56.0 with ceiling
+	// 56.2.0) cannot resolve a newer setuptools that changes wheel metadata.
+	// Keep the declared specifier verbatim when it pins with ==/===, already
+	// caps setuptools at or below ceilingVer, or has a lower bound that makes
+	// the intersection empty (>= above ceilingVer, or > at or above ceilingVer).
+	for _, rawClause := range clauses {
+		m := pep440ClausePat.FindStringSubmatch(strings.TrimSpace(rawClause))
+		if m == nil {
+			return trimmed, true
+		}
+		op, ver := m[1], m[2]
+		if op == "===" || op == "==" {
+			return trimmed, true
+		}
+		checkVer := ver
+		if op == "!=" {
+			checkVer = strings.TrimSuffix(ver, ".*")
+		}
+		if !numericVersionPat.MatchString(checkVer) {
+			return trimmed, true
+		}
+		switch op {
+		case "~=":
+			upper, valid := compatibleReleaseCeiling(ver)
+			if !valid || compareSetuptoolsVersion(ver, ceilingVer) > 0 {
+				return trimmed, true
+			}
+			if compareSetuptoolsVersion(upper, ceilingVer) <= 0 {
+				alreadyCapped = true
+			}
+		case ">=":
+			if compareSetuptoolsVersion(ver, ceilingVer) > 0 {
+				return trimmed, true
+			}
+		case ">":
+			if compareSetuptoolsVersion(ver, ceilingVer) >= 0 {
+				return trimmed, true
+			}
+		case "<=", "<":
+			if compareSetuptoolsVersion(ver, ceilingVer) <= 0 {
+				alreadyCapped = true
+			}
+		}
+		normalized = append(normalized, op+ver)
+	}
+	if alreadyCapped {
+		return trimmed, true
+	}
+	normalized = append(normalized, "<="+ceilingVer)
+	return "setuptools" + extras + strings.Join(normalized, ","), true
+}
+
+// compatibleReleaseCeiling returns the exclusive upper bound implied by ~=ver,
+// incrementing ver's second-to-last numeric segment (for example 59.0 -> 60).
+func compatibleReleaseCeiling(ver string) (string, bool) {
+	parts := strings.Split(ver, ".")
+	if len(parts) < 2 {
+		return "", false
+	}
+	n, err := strconv.Atoi(parts[len(parts)-2])
+	if err != nil {
+		return "", false
+	}
+	parts[len(parts)-2] = strconv.Itoa(n + 1)
+	return strings.Join(parts[:len(parts)-1], "."), true
+}
+
+func trimZeroVersionSegments(v string) string {
+	for strings.HasSuffix(v, ".0") {
+		v = strings.TrimSuffix(v, ".0")
+	}
+	return v
+}
+
+func compareSetuptoolsVersion(a, b string) int {
+	return versionx.ApproxCompare(trimZeroVersionSegments(a), trimZeroVersionSegments(b))
 }
 
 func (Rebuilder) InferStrategy(ctx context.Context, t rebuild.Target, mux rebuild.RegistryMux, rcfg *rebuild.RepoConfig, hint rebuild.Strategy) (rebuild.Strategy, error) {
@@ -813,7 +962,7 @@ var (
 	setuptoolsImpImporterFixVersion = "66.1.0"
 	setuptoolsImpImporterFixDate    = time.Date(2023, time.January, 20, 0, 0, 0, 0, time.UTC)
 	// Upper bounds within a PEP 440 version specifier.
-	versionCeilingPat = re.MustCompile(`(<=?|==)\s*([\d.]+)`)
+	versionCeilingPat = re.MustCompile(`(~=|<=?|===?)\s*(\d+(?:\.\d+)*)`)
 )
 
 // inferPythonVersion pins Python 3.11 when the build may import a setuptools
@@ -829,7 +978,16 @@ func inferPythonVersion(reqs []string, registryTime time.Time) string {
 			continue
 		}
 		for _, m := range versionCeilingPat.FindAllStringSubmatch(req, -1) {
-			if c := versionx.ApproxCompare(m[2], setuptoolsImpImporterFixVersion); c < 0 || c == 0 && m[1] == "<" {
+			op, ver := m[1], m[2]
+			if op == "~=" {
+				var ok bool
+				ver, ok = compatibleReleaseCeiling(ver)
+				if !ok {
+					continue
+				}
+				op = "<"
+			}
+			if c := compareSetuptoolsVersion(ver, setuptoolsImpImporterFixVersion); c < 0 || c == 0 && op == "<" {
 				return "3.11"
 			}
 		}
@@ -932,12 +1090,12 @@ func setuptoolsCeiling(metadata []byte) string {
 	switch {
 	case !bytes.Contains(metadata, []byte("License-File")):
 		// License-File was introduced in later versions, bounding this above.
-		return "setuptools<=56.2.0"
+		return setuptoolsCeilingPrefix + "56.2.0"
 	case bytes.Contains(metadata, []byte("Platform: UNKNOWN")):
 		// Later versions omit the unknown platform, so this is an older setuptools.
-		return "setuptools<=57.5.0"
+		return setuptoolsCeilingPrefix + "57.5.0"
 	default:
-		return "setuptools<=67.7.2"
+		return setuptoolsCeilingPrefix + "67.7.2"
 	}
 }
 
