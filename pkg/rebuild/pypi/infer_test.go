@@ -4,6 +4,7 @@
 package pypi
 
 import (
+	"archive/tar"
 	"archive/zip"
 	"bytes"
 	"context"
@@ -1279,5 +1280,314 @@ func TestMaturinTakesTarget(t *testing.T) {
 		if got := maturinTakesTarget(tc.reqs); got != tc.want {
 			t.Errorf("maturinTakesTarget(%v) = %t, want %t", tc.reqs, got, tc.want)
 		}
+	}
+}
+
+func TestFindGitRefTagValidation(t *testing.T) {
+	const (
+		wrongBranchSrc  = "def fit():\n    return 'mistagged 0.5.4 branch implementation'\n"
+		releaseSrc      = "def fit():\n    return 'actual 0.5.5 release implementation'\n"
+		setupPyWrong    = "from setuptools import setup\nsetup(name='acme', version='2.0.0')\n"
+		setupPyRight    = "from setuptools import setup\nsetup(name='acme', version='2.1.0')\n"
+		setupCfgWrong   = "[metadata]\nname = quickjs-ng\nversion = 0.12.1.1\n"
+		sdistURL        = "https://files.pythonhosted.org/kmedoids-0.5.5.tar.gz"
+		ciStampSdistURL = "https://files.pythonhosted.org/acme-1.2.0.tar.gz"
+		pureWhlURL      = "https://files.pythonhosted.org/acme-2.1.0-py3-none-any.whl"
+		platWhlURL      = "https://files.pythonhosted.org/quickjs_ng-0.15.1.1-cp310-abi3-manylinux_2_28_x86_64.whl"
+	)
+	tarFile := func(name, body string) archive.TarEntry {
+		return archive.TarEntry{
+			Header: &tar.Header{Name: name, Typeflag: tar.TypeReg, Size: int64(len(body)), Mode: 0o644},
+			Body:   []byte(body),
+		}
+	}
+	day := func(n int) time.Time { return time.Date(2026, time.January, n, 0, 0, 0, 0, time.UTC) }
+	kmedoidsSdist := must(archivetest.TgzFile([]archive.TarEntry{
+		tarFile("kmedoids-0.5.5/pyproject.toml", pyprojectTOML("kmedoids", "0.5.5")),
+		tarFile("kmedoids-0.5.5/kmedoids/__init__.py", releaseSrc),
+	}))
+	ciStampedSdist := must(archivetest.TgzFile([]archive.TarEntry{
+		tarFile("acme-1.2.0/pyproject.toml", pyprojectTOML("acme", "1.2.0")),
+		tarFile("acme-1.2.0/acme/__init__.py", releaseSrc),
+		tarFile("acme-1.2.0/README.md", "readme\n"),
+	}))
+	acmeWheel := wheelZip(t, []archive.ZipEntry{
+		zipEntry("acme/__init__.py", releaseSrc),
+		zipEntry("acme-2.1.0.dist-info/METADATA", "Metadata-Version: 2.1\nName: acme\nVersion: 2.1.0\n"),
+	})
+	quickjsWheel := wheelZip(t, []archive.ZipEntry{
+		zipEntry("quickjs/__init__.py", "from ._quickjs import Context\n"),
+		zipEntry("quickjs_ng-0.15.1.1.dist-info/METADATA", "Metadata-Version: 2.1\nName: quickjs-ng\nVersion: 0.15.1.1\n"),
+	})
+	tests := []struct {
+		name      string
+		pkg       string
+		version   string
+		commits   []gitxtest.Commit
+		artifacts []pypireg.Artifact
+		calls     []httpxtest.Call
+		wantID    string
+		wantErr   bool
+	}{
+		{
+			name:    "AcceptsMatchingDeclaredVersion",
+			pkg:     "acme",
+			version: "1.2.3",
+			commits: []gitxtest.Commit{
+				{ID: "rel", Time: day(1), Tag: "v1.2.3", Files: gitxtest.FileContent{"pyproject.toml": pyprojectTOML("acme", "1.2.3")}},
+			},
+			wantID: "rel",
+		},
+		{
+			name:    "AcceptsTrailingZeroNormalization",
+			pkg:     "acme",
+			version: "1.2",
+			commits: []gitxtest.Commit{
+				{ID: "rel", Time: day(1), Tag: "v1.2", Files: gitxtest.FileContent{"pyproject.toml": pyprojectTOML("acme", "1.2.0")}},
+			},
+			wantID: "rel",
+		},
+		{
+			name:    "AcceptsEpochPrefixInDeclaredVersion",
+			pkg:     "acme",
+			version: "1.2.3",
+			commits: []gitxtest.Commit{
+				{ID: "rel", Time: day(1), Tag: "v1.2.3", Files: gitxtest.FileContent{"pyproject.toml": pyprojectTOML("acme", "1!1.2.3")}},
+			},
+			wantID: "rel",
+		},
+		{
+			name:    "AcceptsLeadingVInDeclaredVersion",
+			pkg:     "acme",
+			version: "1.2.3",
+			commits: []gitxtest.Commit{
+				{ID: "rel", Time: day(1), Tag: "v1.2.3", Files: gitxtest.FileContent{"pyproject.toml": pyprojectTOML("acme", "v1.2.3")}},
+			},
+			wantID: "rel",
+		},
+		{
+			name:    "AcceptsPreReleaseWithMatchingBaseRelease",
+			pkg:     "acme",
+			version: "1.2.3",
+			commits: []gitxtest.Commit{
+				{ID: "rel", Time: day(1), Tag: "v1.2.3", Files: gitxtest.FileContent{"pyproject.toml": pyprojectTOML("acme", "1.2.3rc1")}},
+			},
+			wantID: "rel",
+		},
+		{
+			name:    "AcceptsPostReleaseWithMatchingBaseRelease",
+			pkg:     "acme",
+			version: "1.2.3",
+			commits: []gitxtest.Commit{
+				{ID: "rel", Time: day(1), Tag: "v1.2.3", Files: gitxtest.FileContent{"pyproject.toml": pyprojectTOML("acme", "1.2.3.post1")}},
+			},
+			wantID: "rel",
+		},
+		{
+			name:    "AcceptsLocalVersionWithMatchingBaseRelease",
+			pkg:     "acme",
+			version: "1.2.3",
+			commits: []gitxtest.Commit{
+				{ID: "rel", Time: day(1), Tag: "v1.2.3", Files: gitxtest.FileContent{"pyproject.toml": pyprojectTOML("acme", "1.2.3+local")}},
+			},
+			wantID: "rel",
+		},
+		{
+			name:    "AcceptsDevSuffixWithMatchingBaseRelease",
+			pkg:     "acme",
+			version: "1.2.3",
+			commits: []gitxtest.Commit{
+				{ID: "rel", Time: day(1), Tag: "v1.2.3", Files: gitxtest.FileContent{"setup.py": "from setuptools import setup\nsetup(name='acme', version='1.2.3.dev0')\n"}},
+			},
+			wantID: "rel",
+		},
+		{
+			name:    "AcceptsSingleSegmentRelease",
+			pkg:     "acme",
+			version: "5",
+			commits: []gitxtest.Commit{
+				{ID: "rel", Time: day(1), Tag: "v5", Files: gitxtest.FileContent{"pyproject.toml": pyprojectTOML("acme", "5.0")}},
+			},
+			wantID: "rel",
+		},
+		{
+			name:    "RejectsContradictingSingleSegmentDeclaredVersion",
+			pkg:     "acme",
+			version: "2.0",
+			commits: []gitxtest.Commit{
+				{ID: "rel", Time: day(1), Tag: "v2.0", Files: gitxtest.FileContent{"pyproject.toml": pyprojectTOML("acme", "1")}},
+			},
+			wantErr: true,
+		},
+		{
+			name:    "AcceptsDynamicVersion",
+			pkg:     "acme",
+			version: "1.2.3",
+			commits: []gitxtest.Commit{
+				{ID: "rel", Time: day(1), Tag: "v1.2.3", Files: gitxtest.FileContent{"pyproject.toml": "[project]\nname = \"acme\"\ndynamic = [\"version\"]\n"}},
+			},
+			wantID: "rel",
+		},
+		{
+			name:    "AcceptsPlaceholderZeroVersion",
+			pkg:     "awscrt",
+			version: "0.36.0",
+			commits: []gitxtest.Commit{
+				{ID: "rel", Time: day(1), Tag: "v0.36.0", Files: gitxtest.FileContent{"pyproject.toml": pyprojectTOML("awscrt", "0.0.0")}},
+			},
+			wantID: "rel",
+		},
+		{
+			name:    "AcceptsPlaceholderZeroZeroOneVersion",
+			pkg:     "kuzu",
+			version: "0.11.3",
+			commits: []gitxtest.Commit{
+				{ID: "rel", Time: day(1), Tag: "v0.11.3", Files: gitxtest.FileContent{"pyproject.toml": pyprojectTOML("kuzu", "0.0.1")}},
+			},
+			wantID: "rel",
+		},
+		{
+			name:    "AcceptsPlaceholderZeroOneZeroVersion",
+			pkg:     "acme",
+			version: "1.2.3",
+			commits: []gitxtest.Commit{
+				{ID: "rel", Time: day(1), Tag: "v1.2.3", Files: gitxtest.FileContent{"pyproject.toml": pyprojectTOML("acme", "0.1.0")}},
+			},
+			wantID: "rel",
+		},
+		{
+			name:    "KeepsCIStampedTagWithStaleDeclaredVersionMatchingSdist",
+			pkg:     "acme",
+			version: "1.2.0",
+			commits: []gitxtest.Commit{
+				{ID: "older", Time: day(1), Files: gitxtest.FileContent{"pyproject.toml": pyprojectTOML("acme", "1.0.0"), "acme/__init__.py": wrongBranchSrc, "README.md": "readme\n"}},
+				{ID: "rel", Time: day(2), Parent: "older", Tag: "v1.2.0", Files: gitxtest.FileContent{"acme/__init__.py": releaseSrc}},
+			},
+			artifacts: []pypireg.Artifact{
+				{Filename: "acme-1.2.0-cp312-cp312-manylinux_2_28_x86_64.whl", Size: 100},
+				{Filename: "acme-1.2.0.tar.gz", URL: ciStampSdistURL, Size: int64(ciStampedSdist.Len())},
+			},
+			calls: []httpxtest.Call{
+				{URL: "https://pypi.org/pypi/acme/1.2.0/json", Response: &http.Response{StatusCode: 200, Body: httpxtest.Body(fmt.Sprintf(`{"info":{"name":"acme","version":"1.2.0"},"urls":[{"filename":"acme-1.2.0.tar.gz","url":%q,"size":%d}]}`, ciStampSdistURL, ciStampedSdist.Len()))}},
+				{URL: ciStampSdistURL, Response: &http.Response{StatusCode: 200, Body: httpxtest.Body(ciStampedSdist.String())}},
+			},
+			wantID: "rel",
+		},
+		{
+			name:    "RejectsContradictingTagWhenAnotherCommitHasBetterSdistOverlap",
+			pkg:     "acme",
+			version: "1.2.0",
+			commits: []gitxtest.Commit{
+				{ID: "mistagged", Time: day(1), Tag: "v1.2.0", Files: gitxtest.FileContent{"pyproject.toml": pyprojectTOML("acme", "1.0.0"), "acme/__init__.py": wrongBranchSrc, "README.md": "readme\n"}},
+				{ID: "later", Time: day(2), Parent: "mistagged", Files: gitxtest.FileContent{"acme/__init__.py": releaseSrc}},
+			},
+			artifacts: []pypireg.Artifact{
+				{Filename: "acme-1.2.0.tar.gz", URL: ciStampSdistURL, Size: int64(ciStampedSdist.Len())},
+			},
+			calls: []httpxtest.Call{
+				{URL: "https://pypi.org/pypi/acme/1.2.0/json", Response: &http.Response{StatusCode: 200, Body: httpxtest.Body(fmt.Sprintf(`{"info":{"name":"acme","version":"1.2.0"},"urls":[{"filename":"acme-1.2.0.tar.gz","url":%q,"size":%d}]}`, ciStampSdistURL, ciStampedSdist.Len()))}},
+				{URL: ciStampSdistURL, Response: &http.Response{StatusCode: 200, Body: httpxtest.Body(ciStampedSdist.String())}},
+			},
+			wantErr: true,
+		},
+		{
+			name:    "RejectsContradictingTagWhenSdistSharesZeroBlobs",
+			pkg:     "acme",
+			version: "1.2.0",
+			commits: []gitxtest.Commit{
+				{ID: "mistagged", Time: day(1), Tag: "v1.2.0", Files: gitxtest.FileContent{"pyproject.toml": pyprojectTOML("acme", "1.0.0"), "acme/__init__.py": wrongBranchSrc}},
+			},
+			artifacts: []pypireg.Artifact{
+				{Filename: "acme-1.2.0.tar.gz", URL: ciStampSdistURL, Size: int64(ciStampedSdist.Len())},
+			},
+			calls: []httpxtest.Call{
+				{URL: "https://pypi.org/pypi/acme/1.2.0/json", Response: &http.Response{StatusCode: 200, Body: httpxtest.Body(fmt.Sprintf(`{"info":{"name":"acme","version":"1.2.0"},"urls":[{"filename":"acme-1.2.0.tar.gz","url":%q,"size":%d}]}`, ciStampSdistURL, ciStampedSdist.Len()))}},
+				{URL: ciStampSdistURL, Response: &http.Response{StatusCode: 200, Body: httpxtest.Body(ciStampedSdist.String())}},
+			},
+			wantErr: true,
+		},
+		{
+			name:    "RejectsContradictingPyprojectAndFallsBackToSdist",
+			pkg:     "kmedoids",
+			version: "0.5.5",
+			commits: []gitxtest.Commit{
+				{ID: "mistagged", Time: day(1), Tag: "v0.5.5", Files: gitxtest.FileContent{"pyproject.toml": pyprojectTOML("kmedoids", "0.5.4"), "kmedoids/__init__.py": wrongBranchSrc}},
+				{ID: "release", Time: day(2), Parent: "mistagged", Files: gitxtest.FileContent{"pyproject.toml": pyprojectTOML("kmedoids", "0.5.5"), "kmedoids/__init__.py": releaseSrc}},
+			},
+			artifacts: []pypireg.Artifact{
+				{Filename: "kmedoids-0.5.5-cp312-cp312-manylinux_2_28_x86_64.whl", Size: 100},
+				{Filename: "kmedoids-0.5.5.tar.gz", URL: sdistURL, Size: int64(kmedoidsSdist.Len())},
+			},
+			calls: []httpxtest.Call{
+				{URL: "https://pypi.org/pypi/kmedoids/0.5.5/json", Response: &http.Response{StatusCode: 200, Body: httpxtest.Body(fmt.Sprintf(`{"info":{"name":"kmedoids","version":"0.5.5"},"urls":[{"filename":"kmedoids-0.5.5.tar.gz","url":%q,"size":%d}]}`, sdistURL, kmedoidsSdist.Len()))}},
+				{URL: sdistURL, Response: &http.Response{StatusCode: 200, Body: httpxtest.Body(kmedoidsSdist.String())}},
+			},
+			wantID: "release",
+		},
+		{
+			name:    "RejectsContradictingSetupPyAndFallsBackToWheel",
+			pkg:     "acme",
+			version: "2.1.0",
+			commits: []gitxtest.Commit{
+				{ID: "mistagged", Time: day(1), Tag: "v2.1.0", Files: gitxtest.FileContent{"setup.py": setupPyWrong, "acme/__init__.py": wrongBranchSrc}},
+				{ID: "release", Time: day(2), Parent: "mistagged", Files: gitxtest.FileContent{"setup.py": setupPyRight, "acme/__init__.py": releaseSrc}},
+			},
+			artifacts: []pypireg.Artifact{
+				{Filename: "acme-2.1.0-py3-none-any.whl", URL: pureWhlURL, Size: int64(len(acmeWheel))},
+			},
+			calls: []httpxtest.Call{
+				{URL: "https://pypi.org/pypi/acme/2.1.0/json", Response: &http.Response{StatusCode: 200, Body: httpxtest.Body(fmt.Sprintf(`{"info":{"name":"acme","version":"2.1.0"},"urls":[{"filename":"acme-2.1.0-py3-none-any.whl","url":%q,"size":%d}]}`, pureWhlURL, len(acmeWheel)))}},
+				{URL: pureWhlURL, Response: &http.Response{StatusCode: 200, Body: httpxtest.Body(string(acmeWheel))}},
+			},
+			wantID: "release",
+		},
+		{
+			name:    "RejectsContradictingSetupCfgWithoutMatchingArchive",
+			pkg:     "quickjs-ng",
+			version: "0.15.1.1",
+			commits: []gitxtest.Commit{
+				{ID: "squashed", Time: day(1), Tag: "v0.15.1.1", Files: gitxtest.FileContent{"setup.cfg": setupCfgWrong, "quickjs/__init__.py": "from ._quickjs import Context\n"}},
+			},
+			artifacts: []pypireg.Artifact{
+				{Filename: "quickjs_ng-0.15.1.1-cp310-abi3-manylinux_2_28_x86_64.whl", URL: platWhlURL, Size: int64(len(quickjsWheel))},
+			},
+			calls: []httpxtest.Call{
+				{URL: "https://pypi.org/pypi/quickjs-ng/0.15.1.1/json", Response: &http.Response{StatusCode: 200, Body: httpxtest.Body(fmt.Sprintf(`{"info":{"name":"quickjs-ng","version":"0.15.1.1"},"urls":[{"filename":"quickjs_ng-0.15.1.1-cp310-abi3-manylinux_2_28_x86_64.whl","url":%q,"size":%d}]}`, platWhlURL, len(quickjsWheel)))}},
+				{URL: platWhlURL, Response: &http.Response{StatusCode: 200, Body: httpxtest.Body(string(quickjsWheel))}},
+			},
+			wantErr: true,
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			repo := must(gitxtest.CreateRepo(tc.commits, nil))
+			release := &pypireg.Release{
+				Info:      pypireg.Info{Name: tc.pkg, Version: tc.version},
+				Artifacts: tc.artifacts,
+			}
+			mux := rebuild.RegistryMux{
+				PyPI: pypireg.HTTPRegistry{
+					Client: &httpxtest.MockClient{
+						Calls:        tc.calls,
+						URLValidator: httpxtest.NewURLValidator(t),
+					},
+				},
+			}
+			rcfg := &rebuild.RepoConfig{Repo: gitx.Repo{Repository: repo.Repository}, URI: "https://github.com/example/" + tc.pkg}
+			got, err := findGitRef(context.Background(), mux, tc.pkg, tc.version, release, rcfg)
+			if tc.wantErr {
+				if err == nil {
+					t.Fatalf("findGitRef() = %q, nil error, want error", got)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("findGitRef() error = %v", err)
+			}
+			want := repo.Commits[tc.wantID].String()
+			if diff := cmp.Diff(want, got); diff != "" {
+				t.Errorf("findGitRef() diff (-want +got):\n%s", diff)
+			}
+		})
 	}
 }

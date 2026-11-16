@@ -93,11 +93,34 @@ func TestMatchArchiveBlobs(t *testing.T) {
 			// only one carrying the content.
 			name: "unique best overlap declaring another version",
 			commits: []gitxtest.Commit{
-				{ID: "v1", Time: day(1), Files: gitxtest.FileContent{"pyproject.toml": pyprojectTOML("acme", "0.0.0"), "acme/core.py": coreV1, "acme/util.py": util}},
+				{ID: "v1", Time: day(1), Files: gitxtest.FileContent{"pyproject.toml": pyprojectTOML("acme", "1.0.0"), "acme/core.py": coreV1, "acme/util.py": util}},
 				{ID: "v2", Time: day(2), Parent: "v1", Files: gitxtest.FileContent{"acme/core.py": coreV2}},
 			},
 			version: "2.0.0",
 			want:    "",
+		},
+		{
+			// Placeholder versions (0.0.0, 0.0.1, 0.1.0) left for CI stamping
+			// count as neutral rather than contradicting the target version.
+			name: "unique best overlap declaring placeholder version",
+			commits: []gitxtest.Commit{
+				{ID: "v1", Time: day(1), Files: gitxtest.FileContent{"pyproject.toml": pyprojectTOML("acme", "0.1.0"), "acme/core.py": coreV1, "acme/util.py": util}},
+				{ID: "v2", Time: day(2), Parent: "v1", Files: gitxtest.FileContent{"acme/core.py": coreV2}},
+			},
+			version: "2.0.0",
+			want:    "v2",
+		},
+		{
+			// A real 0.1.0 release still treats a declared 0.1.0 as confirming,
+			// picking the latest confirming commit over an earlier one.
+			name: "version tie on 0.1.0 target, latest confirming",
+			commits: []gitxtest.Commit{
+				{ID: "r1", Time: day(1), Files: gitxtest.FileContent{"pyproject.toml": pyprojectTOML("acme", "0.0.9"), "acme/core.py": coreV2, "acme/util.py": util}},
+				{ID: "r2", Time: day(2), Parent: "r1", Files: gitxtest.FileContent{"pyproject.toml": pyprojectTOML("acme", "0.1.0")}},
+				{ID: "r3", Time: day(3), Parent: "r2", Files: gitxtest.FileContent{"README.md": "doc change\n"}},
+			},
+			version: "0.1.0",
+			want:    "r3",
 		},
 		{
 			// Wheels carry no build files, so commits differing only in the

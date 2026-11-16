@@ -12,7 +12,9 @@ import (
 	"context"
 	"io"
 	"log"
+	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -23,6 +25,11 @@ import (
 	"github.com/google/oss-rebuild/pkg/vcs/gitscan"
 	"github.com/msuozzo/go-git2"
 	"github.com/pkg/errors"
+)
+
+var (
+	epochPrefixPat = regexp.MustCompile(`^\d+!`)
+	baseReleasePat = regexp.MustCompile(`^\d+(?:\.\d+)*`)
 )
 
 func shortHash(h string) string {
@@ -38,30 +45,82 @@ func shortHash(h string) string {
 // sdist, which holds the most source files, else a platform wheel. Works
 // without a declared version.
 func archiveContentRef(ctx context.Context, mux rebuild.RegistryMux, pkg, version string, release *pypireg.Release, repo *git2.Repository) (string, error) {
-	a, err := FindPureWheel(release.Artifacts)
+	a, err := firstReleaseArchive(release.Artifacts, FindPureWheel, FindSourceDist, FindPlatformWheel)
 	if err != nil {
-		a, err = FindSourceDist(release.Artifacts)
+		return "", err
 	}
+	hashes, err := downloadArchiveBlobs(ctx, mux, pkg, version, a)
 	if err != nil {
-		a, err = FindPlatformWheel(release.Artifacts)
+		return "", err
 	}
+	return matchArchiveBlobs(ctx, hashes, pkg, version, a.UploadTime, repo)
+}
+
+// resolveContradictingTag checks a tag commit whose static metadata declares
+// another version against the release's archive blobs, preferring the sdist.
+// It returns a version-consistent archive match when one exists, keeps
+// tagCommit when an sdist confirms it has the best positive blob overlap
+// within the upload window (as in CI-stamped releases with a stale committed
+// version), and returns an error otherwise.
+func resolveContradictingTag(ctx context.Context, mux rebuild.RegistryMux, pkg, version string, release *pypireg.Release, repo *git2.Repository, tagCommit *git2.Commit) (string, error) {
+	a, err := firstReleaseArchive(release.Artifacts, FindSourceDist, FindPureWheel, FindPlatformWheel)
 	if err != nil {
-		return "", errors.Wrap(err, "no release archive")
+		return "", err
 	}
+	hashes, err := downloadArchiveBlobs(ctx, mux, pkg, version, a)
+	if err != nil {
+		return "", err
+	}
+	candidates, matched, total, err := searchClosestCommits(ctx, repo, hashes)
+	if err != nil {
+		return "", err
+	}
+	tagHasBestOverlap := matched > 0 && slices.ContainsFunc(candidates, func(c *git2.Commit) bool { return c.Hash == tagCommit.Hash })
+	pick, err := pickByDeclaredVersion(ctx, candidates, pkg, version, a.UploadTime)
+	if err != nil {
+		return "", err
+	}
+	if pick != nil {
+		ref := pick.Hash.String()
+		log.Printf("archive-content match [pkg=%s,ver=%s,blobs=%d/%d,ties=%d,ref=%s]\n", pkg, version, matched, total, len(candidates), shortHash(ref))
+		return ref, nil
+	}
+	isSdist := strings.HasSuffix(a.Filename, ".tar.gz")
+	inUploadWindow := a.UploadTime.IsZero() || !tagCommit.Author.When.After(a.UploadTime.Add(24*time.Hour))
+	if isSdist && tagHasBestOverlap && inUploadWindow {
+		return tagCommit.Hash.String(), nil
+	}
+	return "", errors.Errorf("no version-consistent blob overlap candidate [best=%d,total=%d,ties=%d]", matched, total, len(candidates))
+}
+
+type artifactFinder func([]pypireg.Artifact) (*pypireg.Artifact, error)
+
+func firstReleaseArchive(artifacts []pypireg.Artifact, finders ...artifactFinder) (*pypireg.Artifact, error) {
+	var err error
+	for _, find := range finders {
+		var a *pypireg.Artifact
+		if a, err = find(artifacts); err == nil {
+			return a, nil
+		}
+	}
+	return nil, errors.Wrap(err, "no release archive")
+}
+
+func downloadArchiveBlobs(ctx context.Context, mux rebuild.RegistryMux, pkg, version string, a *pypireg.Artifact) ([]plumbing.Hash, error) {
 	rc, err := mux.PyPI.Artifact(ctx, pkg, version, a.Filename)
 	if err != nil {
-		return "", errors.Wrap(err, "downloading archive")
+		return nil, errors.Wrap(err, "downloading archive")
 	}
 	defer rc.Close()
 	body, err := io.ReadAll(rc)
 	if err != nil {
-		return "", errors.Wrap(err, "reading archive")
+		return nil, errors.Wrap(err, "reading archive")
 	}
 	hashes, err := archiveBlobs(a.Filename, body)
 	if err != nil {
-		return "", errors.Wrap(err, "hashing archive contents")
+		return nil, errors.Wrap(err, "hashing archive contents")
 	}
-	return matchArchiveBlobs(ctx, hashes, pkg, version, a.UploadTime, repo)
+	return hashes, nil
 }
 
 // archiveBlobs returns the blob hashes of the files in a wheel or sdist, except
@@ -95,29 +154,40 @@ func archiveBlobs(name string, body []byte) ([]plumbing.Hash, error) {
 // given blobs, via gitscan.ReachableTreeCount, as vetted and tie-broken by
 // pickByDeclaredVersion for an archive uploaded at uploaded.
 func matchArchiveBlobs(ctx context.Context, hashes []plumbing.Hash, pkg, version string, uploaded time.Time, repo *git2.Repository) (string, error) {
-	blobs := make([]git2.Hash, len(hashes))
-	for i, h := range hashes {
-		blobs[i] = git2.Hash(h)
-	}
-	closest, matched, total, err := gitscan.ReachableTreeCount{}.Search(ctx, repo, blobs)
+	candidates, matched, total, err := searchClosestCommits(ctx, repo, hashes)
 	if err != nil {
-		return "", errors.Wrap(err, "searching trees for blob overlap")
+		return "", err
 	}
-	candidates := make([]*git2.Commit, 0, len(closest))
-	for _, h := range closest {
-		c, err := repo.CommitObject(git2.NewHash(h))
-		if err != nil {
-			return "", errors.Wrap(err, "resolving best-overlap commit")
-		}
-		candidates = append(candidates, c)
+	pick, err := pickByDeclaredVersion(ctx, candidates, pkg, version, uploaded)
+	if err != nil {
+		return "", err
 	}
-	pick := pickByDeclaredVersion(ctx, candidates, pkg, version, uploaded)
 	if pick == nil {
 		return "", errors.Errorf("no version-consistent blob overlap candidate [best=%d,total=%d,ties=%d]", matched, total, len(candidates))
 	}
 	ref := pick.Hash.String()
 	log.Printf("archive-content match [pkg=%s,ver=%s,blobs=%d/%d,ties=%d,ref=%s]\n", pkg, version, matched, total, len(candidates), shortHash(ref))
 	return ref, nil
+}
+
+func searchClosestCommits(ctx context.Context, repo *git2.Repository, hashes []plumbing.Hash) (candidates []*git2.Commit, matched, total int, err error) {
+	blobs := make([]git2.Hash, len(hashes))
+	for i, h := range hashes {
+		blobs[i] = git2.Hash(h)
+	}
+	closest, matched, total, err := gitscan.ReachableTreeCount{}.Search(ctx, repo, blobs)
+	if err != nil {
+		return nil, 0, 0, errors.Wrap(err, "searching trees for blob overlap")
+	}
+	candidates = make([]*git2.Commit, 0, len(closest))
+	for _, h := range closest {
+		c, err := repo.CommitObject(git2.NewHash(h))
+		if err != nil {
+			return nil, 0, 0, errors.Wrap(err, "resolving best-overlap commit")
+		}
+		candidates = append(candidates, c)
+	}
+	return candidates, matched, total, nil
 }
 
 // maxVettedTies bounds how many tied commits pickByDeclaredVersion reads, so
@@ -127,17 +197,18 @@ const maxVettedTies = 1000
 // pickByDeclaredVersion chooses among commits tied on blob overlap by the version
 // each one's build file declares, read where the previous candidate's build
 // file was found and then anywhere in its tree. A build file confirming
-// version keeps its commit in the running, one declaring none leaves it
-// neutral, and one naming another version drops it. Commit time then orders
-// the survivors: the latest confirming candidate, the version's final state,
-// else the earliest neutral one, where the content was introduced, else nil.
-// Spellings are compared under the approximate ordering, since PyPI
-// canonicalizes them.
+// version keeps its commit in the running, one declaring none (or a CI
+// placeholder) leaves it neutral, and one naming another version drops it.
+// Commit time then orders the survivors: the latest confirming candidate, the
+// version's final state, else the earliest neutral one, where the content was
+// introduced, else nil. Spellings are compared under the approximate ordering,
+// since PyPI canonicalizes them.
 //
 // Candidates authored over a day after uploaded are too late to have built the
 // archive and are dropped, as author time survives rebases. The rest are read
 // newest first, up to maxVettedTies, until one confirms version.
-func pickByDeclaredVersion(ctx context.Context, candidates []*git2.Commit, pkg, version string, uploaded time.Time) *git2.Commit {
+func pickByDeclaredVersion(ctx context.Context, candidates []*git2.Commit, pkg, version string, uploaded time.Time) (*git2.Commit, error) {
+	candidates = slices.Clone(candidates)
 	if !uploaded.IsZero() {
 		cutoff := uploaded.Add(24 * time.Hour)
 		candidates = slices.DeleteFunc(candidates, func(c *git2.Commit) bool { return c.Author.When.After(cutoff) })
@@ -146,21 +217,78 @@ func pickByDeclaredVersion(ctx context.Context, candidates []*git2.Commit, pkg, 
 	var neutral *git2.Commit
 	var dir string
 	for _, c := range candidates[:min(len(candidates), maxVettedTies)] {
-		var declared, found string
-		if tree, err := c.Tree(); err == nil {
-			declared, found = pypiresolver.FindDeclaredVersion(ctx, tree, dir, pkg)
+		tree, err := c.Tree()
+		if err != nil {
+			return nil, errors.Wrap(err, "reading candidate tree")
 		}
+		declared, found := pypiresolver.FindDeclaredVersion(ctx, tree, dir, pkg)
 		dir = cmp.Or(found, dir)
+		// NOTE: Placeholder releases count as no declaration, as in declaredVersionContradicts,
+		// unless they are the target release itself.
+		if base, ok := parseBaseRelease(declared); ok && isPlaceholderVersion(base) && !pypiresolver.SameVersion(declared, version) {
+			declared = ""
+		}
 		switch {
 		case declared == "" && (neutral == nil || byCommitTime(c, neutral) < 0):
 			neutral = c
 		case declared != "" && pypiresolver.SameVersion(declared, version):
-			return c
+			return c, nil
 		}
 	}
-	return neutral
+	return neutral, nil
 }
 
 func byCommitTime(a, b *git2.Commit) int {
 	return a.Committer.When.Compare(b.Committer.When)
+}
+
+// declaredVersionContradicts reports whether commit statically declares a
+// non-placeholder release version whose numeric base release differs from
+// version. Dynamic, missing, unparseable, or placeholder versions return false.
+func declaredVersionContradicts(ctx context.Context, commit *git2.Commit, dir, pkg, version string) (bool, error) {
+	targetBase, ok := parseBaseRelease(version)
+	if !ok {
+		return false, nil
+	}
+	tree, err := commit.Tree()
+	if err != nil {
+		return false, errors.Wrap(err, "reading commit tree")
+	}
+	declared, _ := pypiresolver.FindDeclaredVersion(ctx, tree, dir, pkg)
+	declaredBase, ok := parseBaseRelease(declared)
+	if !ok || isPlaceholderVersion(declaredBase) {
+		return false, nil
+	}
+	return !slices.Equal(declaredBase, targetBase), nil
+}
+
+// parseBaseRelease returns the PEP 440 release segment without trailing zeros,
+// ignoring pre-, post-, and dev-release suffixes so 1.2.0 and 1.2rc1 match 1.2.
+func parseBaseRelease(v string) ([]int, bool) {
+	s := strings.TrimSpace(v)
+	s = strings.TrimPrefix(strings.TrimPrefix(s, "v"), "V")
+	s = epochPrefixPat.ReplaceAllString(s, "")
+	m := baseReleasePat.FindString(s)
+	if m == "" {
+		return nil, false
+	}
+	parts := strings.Split(m, ".")
+	nums := make([]int, len(parts))
+	for i, p := range parts {
+		n, err := strconv.Atoi(p)
+		if err != nil {
+			return nil, false
+		}
+		nums[i] = n
+	}
+	for len(nums) > 1 && nums[len(nums)-1] == 0 {
+		nums = nums[:len(nums)-1]
+	}
+	return nums, true
+}
+
+// isPlaceholderVersion reports whether base is a dummy release number (0.0.0,
+// 0.0.1, or 0.1.0) left in build files when CI stamps the real version.
+func isPlaceholderVersion(base []int) bool {
+	return slices.Equal(base, []int{0}) || slices.Equal(base, []int{0, 0, 1}) || slices.Equal(base, []int{0, 1})
 }

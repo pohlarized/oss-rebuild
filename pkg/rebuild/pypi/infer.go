@@ -166,9 +166,10 @@ func (Rebuilder) CloneRepo(ctx context.Context, t rebuild.Target, repoURI string
 }
 
 // findGitRef resolves the commit a release was built from: a tag naming the
-// version when one exists, else the commit whose tree matches a release
-// archive's file blobs. A fallback that errors internally is logged and
-// skipped, never aborting the chain.
+// version when one exists and either does not statically declare a conflicting
+// release or is confirmed by the sdist's file blobs, else the commit whose
+// tree matches a release archive's file blobs. A fallback that errors
+// internally is logged and skipped, never aborting the chain.
 func findGitRef(ctx context.Context, mux rebuild.RegistryMux, pkg, version string, release *pypireg.Release, rcfg *rebuild.RepoConfig) (string, error) {
 	tagHeuristic, err := rebuild.FindTagMatch(pkg, version, rcfg.Repository)
 	if err != nil {
@@ -176,7 +177,7 @@ func findGitRef(ctx context.Context, mux rebuild.RegistryMux, pkg, version strin
 	}
 	log.Printf("Version: %s, tag hash: \"%s\"", version, tagHeuristic)
 	if tagHeuristic != "" {
-		_, err = rcfg.Repository.CommitObject(git2.NewHash(tagHeuristic))
+		tagCommit, err := rcfg.Repository.CommitObject(git2.NewHash(tagHeuristic))
 		if err != nil {
 			switch {
 			case errors.Is(err, git2.ErrObjectNotFound):
@@ -185,7 +186,22 @@ func findGitRef(ctx context.Context, mux rebuild.RegistryMux, pkg, version strin
 				return "", errors.Wrapf(err, "Checkout failed [repo=%s,ref=%s]", rcfg.URI, tagHeuristic)
 			}
 		}
-		return tagHeuristic, nil
+		contradicts, err := declaredVersionContradicts(ctx, tagCommit, rcfg.Dir, pkg, version)
+		if err != nil {
+			return "", errors.Wrapf(err, "checking declared version at %s", shortHash(tagHeuristic))
+		}
+		if !contradicts {
+			return tagHeuristic, nil
+		}
+		ref, err := resolveContradictingTag(ctx, mux, pkg, version, release, rcfg.Repository, tagCommit)
+		if err != nil {
+			log.Printf("ignoring tag ref %s: declared version contradicts %s (%v)", shortHash(tagHeuristic), version, err)
+			return "", errors.New("no git ref")
+		}
+		if ref != tagHeuristic {
+			log.Printf("ignoring tag ref %s: declared version contradicts %s, using archive-content ref %s", shortHash(tagHeuristic), version, shortHash(ref))
+		}
+		return ref, nil
 	}
 	if ref, err := archiveContentRef(ctx, mux, pkg, version, release, rcfg.Repository); err != nil {
 		log.Printf("archive-content search failed [pkg=%s,ver=%s]: %v", pkg, version, err)
