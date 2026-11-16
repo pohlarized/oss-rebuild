@@ -79,15 +79,29 @@ func TestInferRequirements(t *testing.T) {
 	bdist := "Wheel-Version: 1.0\nGenerator: bdist_wheel (0.40.0)\nRoot-Is-Purelib: true\nTag: py3-none-any\n"
 	modern := "Metadata-Version: 2.1\nName: x\nLicense-File: LICENSE\n"
 	tests := []struct {
-		name     string
-		version  string
-		wheel    string
-		metadata string
-		want     []string
+		name               string
+		version            string
+		buildDirHasLicense bool
+		wheel              string
+		metadata           string
+		want               []string
 	}{
-		{name: "bdist_wheel without License-File", wheel: bdist, metadata: "Metadata-Version: 2.1\nName: x\n", want: []string{"wheel==0.40.0", "setuptools<=56.2.0"}},
-		{name: "bdist_wheel with Platform UNKNOWN", wheel: bdist, metadata: modern + "Platform: UNKNOWN\n", want: []string{"wheel==0.40.0", "setuptools<=57.5.0"}},
-		{name: "bdist_wheel with modern metadata", wheel: bdist, metadata: modern, want: []string{"wheel==0.40.0", "setuptools<=67.7.2"}},
+		{name: "bdist_wheel without License-File", buildDirHasLicense: true, wheel: bdist, metadata: "Metadata-Version: 2.1\nName: x\n", want: []string{"wheel==0.40.0", "setuptools<=56.2.0"}},
+		{name: "bdist_wheel with Platform UNKNOWN", buildDirHasLicense: true, wheel: bdist, metadata: modern + "Platform: UNKNOWN\n", want: []string{"wheel==0.40.0", "setuptools<=57.5.0"}},
+		{name: "bdist_wheel with modern metadata", buildDirHasLicense: true, wheel: bdist, metadata: modern, want: []string{"wheel==0.40.0", "setuptools<=67.7.2"}},
+		{
+			name:     "BdistWheelWithoutLicenseFileInBuildDirSkips56Ceiling",
+			wheel:    bdist,
+			metadata: "Metadata-Version: 2.1\nName: x\n",
+			want:     []string{"wheel==0.40.0", "setuptools<=67.7.2"},
+		},
+		{
+			name:               "BdistWheelWithLicenseFileInBuildDirKeeps56Ceiling",
+			buildDirHasLicense: true,
+			wheel:              bdist,
+			metadata:           "Metadata-Version: 2.1\nName: x\n",
+			want:               []string{"wheel==0.40.0", "setuptools<=56.2.0"},
+		},
 		{name: "SetuptoolsGeneratorPinsExactly", wheel: "Wheel-Version: 1.0\nGenerator: setuptools (84.0.0)\n", metadata: modern, want: []string{"setuptools==84.0.0"}},
 		{name: "SetuptoolsGeneratorAtMinVersionPinned", wheel: "Wheel-Version: 1.0\nGenerator: setuptools (70.1.0)\n", metadata: modern, want: []string{"setuptools==70.1.0"}},
 		{name: "SetuptoolsGeneratorBelowMinVersionUnpinned", wheel: "Wheel-Version: 1.0\nGenerator: setuptools (69.5.1)\n", metadata: modern, want: []string{"setuptools"}},
@@ -111,12 +125,72 @@ func TestInferRequirements(t *testing.T) {
 				version = "1.0"
 			}
 			zr := wheelZipReader(t, "testpkg", version, tt.wheel, tt.metadata)
-			got, err := inferRequirements("testpkg", version, zr)
+			got, err := inferRequirements("testpkg", version, tt.buildDirHasLicense, zr)
 			if err != nil {
 				t.Fatalf("inferRequirements() error = %v", err)
 			}
 			if diff := cmp.Diff(tt.want, got); diff != "" {
 				t.Errorf("inferRequirements() diff (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
+func TestBuildDirHasLicense(t *testing.T) {
+	repo := must(gitxtest.CreateRepoFromYAML(`commits:
+  - id: head
+    files:
+      LICENSE: |
+        Apache-2.0
+      tools/no_license/setup.py: |
+        from setuptools import setup
+        setup(name="x", license="MIT")
+      tools/no_license/licenses/MIT.txt: |
+        MIT
+      tools/lowercase_only/License.txt: |
+        MIT
+      tools/with_copying/COPYING.txt: |
+        MIT
+      tools/with_hyphen/LICENSE-MIT: |
+        MIT
+      tools/with_underscore/LICENSE_APACHE: |
+        Apache-2.0
+      tools/setup_cfg_license_file/MIT.txt: |
+        MIT
+      tools/setup_cfg_license_file/setup.cfg: |
+        [metadata]
+        name = x
+        license_file = MIT.txt
+      tools/setup_py_license_files/setup.py: |
+        from setuptools import setup
+        setup(name="x", license_files=["MIT.txt"])
+`, nil))
+	commit := must(repo.Repository.CommitObject(git2.Hash(repo.Commits["head"])))
+	tree := must(commit.Tree())
+	tests := []struct {
+		name string
+		dir  string
+		want bool
+	}{
+		{name: "RootLicense", dir: "", want: true},
+		{name: "DotDirLicense", dir: ".", want: true},
+		{name: "NoLicenseIgnoresNestedDirAndSPDXString", dir: "tools/no_license", want: false},
+		{name: "LowercaseLicenseIgnoredOnPOSIX", dir: "tools/lowercase_only", want: false},
+		{name: "CopyingWithExtension", dir: "tools/with_copying", want: true},
+		{name: "HyphenDelimitedLicense", dir: "tools/with_hyphen/", want: true},
+		{name: "UnderscoreDelimitedLicense", dir: "tools/with_underscore", want: true},
+		{name: "SetupCfgExplicitLicenseFile", dir: "tools/setup_cfg_license_file", want: true},
+		{name: "SetupPyExplicitLicenseFiles", dir: "tools/setup_py_license_files", want: true},
+		{name: "MissingDir", dir: "tools/missing", want: false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := buildDirHasLicense(tree, tt.dir)
+			if err != nil {
+				t.Fatalf("buildDirHasLicense() error = %v", err)
+			}
+			if got != tt.want {
+				t.Errorf("buildDirHasLicense(%q) = %v, want %v", tt.dir, got, tt.want)
 			}
 		})
 	}
@@ -861,7 +935,7 @@ func TestGetGenerator(t *testing.T) {
 		{wheel: "Wheel-Version: 1.0\nGenerator: maturin (1.7.4)\nRoot-Is-Purelib: false\n", want: []string{"maturin==1.7.4"}},
 		{wheel: "Wheel-Version: 1.0\nRoot-Is-Purelib: true\nTag: py3-none-any\n", wantErr: true},
 	} {
-		got, err := getGenerator("1.0", []byte(tc.wheel), nil)
+		got, err := getGenerator("1.0" /* buildDirHasLicense= */, false, []byte(tc.wheel), nil)
 		if (err != nil) != tc.wantErr || !cmp.Equal(got, tc.want) {
 			t.Errorf("getGenerator(%q) = %v, %v, want %v (error %t)", tc.wheel, got, err, tc.want, tc.wantErr)
 		}
@@ -1456,6 +1530,51 @@ func TestInferStrategySetuptoolsCeilingSoundness(t *testing.T) {
 		wantDir   string
 		wantReqs  []string
 	}{
+		{
+			name:     "MonorepoSubdirWithoutLicenseFile",
+			pkg:      "grpcio-tools",
+			version:  "1.76.0",
+			filename: "grpcio_tools-1.76.0-cp311-cp311-manylinux2014_x86_64.manylinux_2_17_x86_64.whl",
+			repoYAML: `commits:
+  - id: release-commit
+    tag: v1.76.0
+    files:
+      LICENSE: |
+        Apache-2.0
+      tools/distrib/python/grpcio_tools/setup.py: |
+        from setuptools import setup
+        setup(name="grpcio-tools", version="1.76.0")
+`,
+			wheelFile: "Wheel-Version: 1.0\nGenerator: bdist_wheel (0.43.0)\nRoot-Is-Purelib: false\nTag: cp311-cp311-manylinux2014_x86_64\n",
+			metadata:  "Metadata-Version: 2.1\nName: grpcio-tools\nVersion: 1.76.0\n",
+			wantDir:   "tools/distrib/python/grpcio_tools",
+			wantReqs:  []string{"wheel==0.43.0", "setuptools<=67.7.2"},
+		},
+		{
+			name:     "ExplicitSetupCfgLicenseFileKeeps56Ceiling",
+			pkg:      "customlic",
+			version:  "1.0.0",
+			filename: "customlic-1.0.0-cp311-cp311-manylinux2014_x86_64.manylinux_2_17_x86_64.whl",
+			repoYAML: `commits:
+  - id: release-commit
+    tag: v1.0.0
+    files:
+      MIT.txt: |
+        MIT
+      setup.cfg: |
+        [metadata]
+        name = customlic
+        version = 1.0.0
+        license_file = MIT.txt
+      setup.py: |
+        from setuptools import setup
+        setup()
+`,
+			wheelFile: "Wheel-Version: 1.0\nGenerator: bdist_wheel (0.37.1)\nRoot-Is-Purelib: false\nTag: cp311-cp311-manylinux2014_x86_64\n",
+			metadata:  "Metadata-Version: 2.1\nName: customlic\nVersion: 1.0.0\n",
+			wantDir:   "",
+			wantReqs:  []string{"wheel==0.37.1", "setuptools<=56.2.0"},
+		},
 		{
 			name:     "LowerBoundSetuptoolsOnAbi3Wheel",
 			pkg:      "psutil",

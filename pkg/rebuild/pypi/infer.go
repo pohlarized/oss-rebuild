@@ -25,6 +25,7 @@ import (
 	"github.com/google/oss-rebuild/internal/semver"
 	"github.com/google/oss-rebuild/internal/uri"
 	"github.com/google/oss-rebuild/internal/versionx"
+	"github.com/google/oss-rebuild/pkg/ini"
 	pypiresolver "github.com/google/oss-rebuild/pkg/rebuild/pypi/parsing"
 	"github.com/google/oss-rebuild/pkg/rebuild/pypi/platform"
 	"github.com/google/oss-rebuild/pkg/rebuild/rebuild"
@@ -257,7 +258,7 @@ func extractPlatformTag(filename string) string {
 	return extractWheelTags(filename).Platform
 }
 
-func inferRequirements(name, version string, zr *zip.Reader) ([]string, error) {
+func inferRequirements(name, version string, buildDirHasLicense bool, zr *zip.Reader) ([]string, error) {
 	distInfoDir, err := getDistInfoDir(name, version, zr)
 	if err != nil {
 		wheelPath := path.Join(expectedDistInfoDir(name, version), "WHEEL")
@@ -273,7 +274,7 @@ func inferRequirements(name, version string, zr *zip.Reader) ([]string, error) {
 	if err != nil {
 		return nil, errors.Wrapf(err, "[INTERNAL] Failed to extract upstream %s", metadataPath)
 	}
-	reqs, err := getGenerator(version, wheel, metadata)
+	reqs, err := getGenerator(version, buildDirHasLicense, wheel, metadata)
 	if err != nil {
 		return nil, errors.Wrapf(err, "[INTERNAL] Failed to get upstream generator")
 	}
@@ -640,21 +641,12 @@ func inferBuild(ctx context.Context, t rebuild.Target, mux rebuild.RegistryMux, 
 	if err != nil {
 		return nil, errors.Wrapf(err, "[INTERNAL] Failed to read upstream artifact")
 	}
-	var reqs []string
 	var zr *zip.Reader
 	if strings.HasSuffix(a.Filename, ".whl") {
 		zr, err = zip.NewReader(bytes.NewReader(body), a.Size)
 		if err != nil {
 			return nil, errors.Wrapf(err, "[INTERNAL] Failed to initialize upstream zip reader")
 		}
-		reqs, err = inferRequirements(release.Name, version, zr)
-		if err != nil {
-			return nil, err
-		}
-	} else if strings.HasSuffix(a.Filename, ".tar.gz") {
-		// For .tar.gz files (source distributions), we don't infer requirements from the archive
-		// We'll get them from pyproject.toml below
-		reqs = []string{}
 	}
 	submodules := loc.Submodules
 	commit, err := rcfg.Repository.CommitObject(git2.NewHash(ref))
@@ -665,23 +657,36 @@ func inferBuild(ctx context.Context, t rebuild.Target, mux rebuild.RegistryMux, 
 	if err != nil {
 		return nil, errors.Wrapf(err, "Failed to get tree")
 	}
-	// Extract pyproject.toml requirements.
-	{
-		newFoundDir, err := pypiresolver.DiscoverBuildDir(ctx, tree, name, version, dir)
-		if err != nil {
-			log.Println(errors.Wrap(err, "Failed to discover build dir."))
-		} else {
-			// NOTE - This should NOT overwrite the hint dir if one exists, but utilize it and return it again
-			//   Test "pyproject.toml - Detect package with dir hint" showcases this
-			dir = newFoundDir
-		}
-		if buildReqs, err := pypiresolver.ExtractRequirements(ctx, tree, dir); err != nil {
-			log.Println(errors.Wrap(err, "Failed to extract reqs from build files."))
-		} else {
-			reqs = mergeRequirements(reqs, buildReqs)
-		}
-		reqs = mergeRequirements(reqs, implicitRequirements(reqs))
+	// NOTE: Resolve the build directory before inferRequirements. The setuptools
+	// License-File ceiling checks license files in the resolved build root.
+	if newFoundDir, err := pypiresolver.DiscoverBuildDir(ctx, tree, name, version, dir); err != nil {
+		log.Println(errors.Wrap(err, "Failed to discover build dir."))
+	} else {
+		// NOTE - This should NOT overwrite the hint dir if one exists, but utilize it and return it again
+		//   Test "pyproject.toml - Detect package with dir hint" showcases this
+		dir = newFoundDir
 	}
+	var reqs []string
+	if zr != nil {
+		hasLicense, err := buildDirHasLicense(tree, dir)
+		if err != nil {
+			return nil, errors.Wrap(err, "inspecting build directory license files")
+		}
+		reqs, err = inferRequirements(release.Name, version, hasLicense, zr)
+		if err != nil {
+			return nil, err
+		}
+	} else if strings.HasSuffix(a.Filename, ".tar.gz") {
+		// For .tar.gz files (source distributions), we don't infer requirements from the archive
+		// We'll get them from pyproject.toml below
+		reqs = []string{}
+	}
+	if buildReqs, err := pypiresolver.ExtractRequirements(ctx, tree, dir); err != nil {
+		log.Println(errors.Wrap(err, "Failed to extract reqs from build files."))
+	} else {
+		reqs = mergeRequirements(reqs, buildReqs)
+	}
+	reqs = mergeRequirements(reqs, implicitRequirements(reqs))
 	if strings.HasSuffix(a.Filename, ".tar.gz") {
 		return &SdistBuild{
 			Location: rebuild.Location{
@@ -1028,8 +1033,9 @@ var maturinPat = re.MustCompile(`^Generator: maturin \(([\d\.]+)\)`)
 
 // getGenerator returns the pins identifying the wheel's build backend from its
 // Generator line. bdist_wheel names the wheel packaging tool, not setuptools,
-// whose version is instead bounded by the metadata era.
-func getGenerator(targetVersion string, wheel, metadata []byte) (reqs []string, err error) {
+// whose version is instead bounded by the metadata era and build directory
+// license files.
+func getGenerator(targetVersion string, buildDirHasLicense bool, wheel, metadata []byte) (reqs []string, err error) {
 	for line := range bytes.Lines(wheel) {
 		sep := bytes.IndexRune(line, ':')
 		if sep == -1 {
@@ -1039,7 +1045,7 @@ func getGenerator(targetVersion string, wheel, metadata []byte) (reqs []string, 
 		key, value := line[:sep], bytes.TrimSpace(line[sep+1:])
 		if bytes.Equal(key, []byte("Generator")) {
 			if matches := bdistWheelPat.FindSubmatch(line); matches != nil {
-				return []string{"wheel==" + string(matches[1]), setuptoolsCeiling(metadata)}, nil
+				return []string{"wheel==" + string(matches[1]), setuptoolsCeiling(buildDirHasLicense, metadata)}, nil
 			} else if matches := setuptoolsPat.FindSubmatch(line); matches != nil {
 				stamped := string(matches[1])
 				// NOTE: pyproject_hooks _BackendPathFinder drops context.name when
@@ -1086,10 +1092,10 @@ func getGenerator(targetVersion string, wheel, metadata []byte) (reqs []string, 
 // NOTE: These version ceilings pin with <= rather than == as timewarp will
 // fail to resolve equality constraints where registry_time is configured
 // before that version's release (which has been observed).
-func setuptoolsCeiling(metadata []byte) string {
+func setuptoolsCeiling(buildDirHasLicense bool, metadata []byte) string {
 	switch {
-	case !bytes.Contains(metadata, []byte("License-File")):
-		// License-File was introduced in later versions, bounding this above.
+	case buildDirHasLicense && !bytes.Contains(metadata, []byte("License-File")):
+		// License-File was introduced in setuptools 57.0.0 when a license file is present.
 		return setuptoolsCeilingPrefix + "56.2.0"
 	case bytes.Contains(metadata, []byte("Platform: UNKNOWN")):
 		// Later versions omit the unknown platform, so this is an older setuptools.
@@ -1097,6 +1103,76 @@ func setuptoolsCeiling(metadata []byte) string {
 	default:
 		return setuptoolsCeilingPrefix + "67.7.2"
 	}
+}
+
+// licenseFilePat matches the default setuptools license_files globs
+// `LICEN[CS]E*`, `COPYING*`, `NOTICE*` and `AUTHORS*` on POSIX builders.
+var licenseFilePat = re.MustCompile(`^(LICEN[CS]E|COPYING|NOTICE|AUTHORS)`)
+
+// setupLicenseFilesPat matches an explicit license_file or license_files keyword argument in setup.py.
+var setupLicenseFilesPat = re.MustCompile(`\blicense_files?\s*=\s*([^\s,\)]+)`)
+
+// buildDirHasLicense reports whether dir in tree provides license files that
+// setuptools 57.0.0+ records under License-File in wheel METADATA, either via
+// default top-level license filenames or explicit build-file configuration.
+func buildDirHasLicense(tree *git2.Tree, dir string) (bool, error) {
+	subTree := tree
+	if trimmed := strings.Trim(dir, "/"); trimmed != "" && trimmed != "." {
+		var err error
+		subTree, err = tree.Tree(trimmed)
+		if errors.Is(err, git2.ErrDirectoryNotFound) {
+			return false, nil
+		}
+		if err != nil {
+			return false, errors.Wrapf(err, "reading build directory %s", trimmed)
+		}
+	}
+	for _, entry := range subTree.Entries {
+		if entry.Mode.IsFile() && licenseFilePat.MatchString(entry.Name) {
+			return true, nil
+		}
+	}
+	return hasConfiguredLicenseFiles(subTree)
+}
+
+// NOTE: pyproject.toml license metadata ([project] and [tool.setuptools]) was
+// introduced in setuptools 61.0.0, so pre-57 builds only configure explicit
+// license files via setup.cfg or setup.py.
+func hasConfiguredLicenseFiles(subTree *git2.Tree) (bool, error) {
+	if src, ok, err := readOptionalTreeFile(subTree, "setup.cfg"); err != nil {
+		return false, err
+	} else if ok {
+		if cfg, err := ini.Parse(strings.NewReader(src)); err == nil {
+			for _, key := range []string{"license_file", "license_files"} {
+				if v, ok := cfg.GetValue("metadata", key); ok && strings.TrimSpace(v) != "" {
+					return true, nil
+				}
+			}
+		}
+	}
+	if src, ok, err := readOptionalTreeFile(subTree, "setup.py"); err != nil {
+		return false, err
+	} else if ok {
+		if m := setupLicenseFilesPat.FindStringSubmatch(src); m != nil && m[1] != "None" && m[1] != "[]" && m[1] != "()" {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+func readOptionalTreeFile(tree *git2.Tree, name string) (string, bool, error) {
+	f, err := tree.File(name)
+	if errors.Is(err, git2.ErrFileNotFound) {
+		return "", false, nil
+	}
+	if err != nil {
+		return "", false, errors.Wrapf(err, "finding %s", name)
+	}
+	src, err := f.Contents()
+	if err != nil {
+		return "", false, errors.Wrapf(err, "reading %s", name)
+	}
+	return src, true, nil
 }
 
 func getFile(fname string, zr *zip.Reader) ([]byte, error) {
