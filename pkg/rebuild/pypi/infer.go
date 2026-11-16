@@ -4,8 +4,11 @@
 package pypi
 
 import (
+	"archive/tar"
 	"archive/zip"
 	"bytes"
+	"cmp"
+	"compress/gzip"
 	"context"
 	"fmt"
 	"io"
@@ -72,9 +75,17 @@ func (Rebuilder) Published(ctx context.Context, t rebuild.Target, mux rebuild.Re
 //	other mentions, release then project:
 //	  - a link under any other name, on a known repo host
 //	  - the first repository cited in the description
+//	the same order on links from the release sdist's PKG-INFO
 func (Rebuilder) InferRepo(ctx context.Context, t rebuild.Target, mux rebuild.RegistryMux) (string, error) {
+	if err := ctx.Err(); err != nil {
+		return "", err
+	}
 	var infos []pypireg.Info
-	if release, err := mux.PyPI.Release(ctx, t.Package, t.Version); err != nil {
+	release, err := mux.PyPI.Release(ctx, t.Package, t.Version)
+	if err != nil {
+		if ctx.Err() != nil {
+			return "", ctx.Err()
+		}
 		log.Printf("Release metadata unavailable [pkg=%s,ver=%s]: %v", t.Package, t.Version, err)
 	} else {
 		infos = append(infos, release.Info)
@@ -84,9 +95,21 @@ func (Rebuilder) InferRepo(ctx context.Context, t rebuild.Target, mux rebuild.Re
 		return "", errors.Wrap(err, "fetching pypi metadata")
 	}
 	infos = append(infos, project.Info)
-	for _, pick := range []func(pypireg.Info) string{repoFromSourceLinks, repoNamedAfter(t.Package), repoFromOtherLinks} {
+	pickers := []func(pypireg.Info) string{repoFromSourceLinks, repoNamedAfter(t.Package), repoFromOtherLinks}
+	for _, pick := range pickers {
 		for _, info := range infos {
 			if repo := pick(info); repo != "" {
+				return uri.CanonicalizeRepoURI(repo)
+			}
+		}
+	}
+	if release != nil {
+		sdistInfo, err := sdistMetadataInfo(ctx, mux, t.Package, t.Version, release)
+		if err != nil {
+			return "", err
+		}
+		for _, pick := range pickers {
+			if repo := pick(sdistInfo); repo != "" {
 				return uri.CanonicalizeRepoURI(repo)
 			}
 		}
@@ -149,6 +172,113 @@ func otherRepoLinks(info pypireg.Info) []string {
 		repos = append(repos, uri.FindCommonRepos(info.ProjectURLs[name])...)
 	}
 	return append(repos, uri.FindCommonRepos(info.Description)...)
+}
+
+const (
+	maxSdistBytes   = 64 << 20 // empirical upper bound on compressed sdist size scanned for metadata
+	maxPkgInfoBytes = 1 << 20  // empirical upper bound on uncompressed PKG-INFO size
+)
+
+// sdistMetadataInfo extracts repository links from a top-level PKG-INFO file
+// in the release's .tar.gz sdist when PyPI JSON omits them. Archive parse
+// errors return empty metadata so a corrupt candidate does not abort inference.
+func sdistMetadataInfo(ctx context.Context, mux rebuild.RegistryMux, pkg, version string, release *pypireg.Release) (pypireg.Info, error) {
+	if err := ctx.Err(); err != nil {
+		return pypireg.Info{}, err
+	}
+	a, err := FindSourceDist(release.Artifacts)
+	if err != nil || a.Size > maxSdistBytes {
+		return pypireg.Info{}, nil
+	}
+	rc, err := mux.PyPI.Artifact(ctx, pkg, version, a.Filename)
+	if err != nil {
+		return pypireg.Info{}, errors.Wrapf(err, "fetching sdist %s", a.Filename)
+	}
+	defer rc.Close()
+	src := &readErrRecorder{r: rc}
+	pkgInfo, err := readSdistPkgInfo(ctx, io.LimitReader(src, maxSdistBytes))
+	switch {
+	case ctx.Err() != nil:
+		return pypireg.Info{}, ctx.Err()
+	case src.err != nil:
+		return pypireg.Info{}, errors.Wrapf(src.err, "reading sdist %s", a.Filename)
+	case err != nil:
+		return pypireg.Info{}, nil
+	}
+	return parsePkgInfo(pkgInfo), nil
+}
+
+// readErrRecorder records the first non-EOF error from r so callers can tell
+// transport failures apart from archive parse errors.
+type readErrRecorder struct {
+	r   io.Reader
+	err error
+}
+
+func (r *readErrRecorder) Read(p []byte) (int, error) {
+	n, err := r.r.Read(p)
+	if err != nil && err != io.EOF && r.err == nil {
+		r.err = err
+	}
+	return n, err
+}
+
+func readSdistPkgInfo(ctx context.Context, r io.Reader) ([]byte, error) {
+	gr, err := gzip.NewReader(r)
+	if err != nil {
+		return nil, err
+	}
+	defer gr.Close()
+	tr := tar.NewReader(gr)
+	for {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		hdr, err := tr.Next()
+		if err != nil {
+			return nil, err
+		}
+		if (hdr.Typeflag != tar.TypeReg && hdr.Typeflag != tar.TypeRegA) || hdr.Size <= 0 || hdr.Size > maxPkgInfoBytes {
+			continue
+		}
+		dir, name, ok := strings.Cut(path.Clean(strings.TrimPrefix(hdr.Name, "./")), "/")
+		if !ok || dir == "" || dir == ".." || name != "PKG-INFO" {
+			continue
+		}
+		return io.ReadAll(io.LimitReader(tr, maxPkgInfoBytes))
+	}
+}
+
+// parsePkgInfo extracts repository-bearing fields from a Core Metadata 2.1+
+// PKG-INFO file, reading Description from the message body and skipping folded
+// header continuations (including legacy 1.x Description headers). Repeated
+// Project-URL labels keep their first value, and setuptools's "UNKNOWN"
+// placeholder is treated as absent.
+// https://packaging.python.org/specifications/core-metadata/
+func parsePkgInfo(b []byte) pypireg.Info {
+	headers, body, _ := strings.Cut(strings.ReplaceAll(string(b), "\r\n", "\n"), "\n\n")
+	info := pypireg.Info{Description: body, ProjectURLs: make(map[string]string)}
+	for line := range strings.SplitSeq(headers, "\n") {
+		key, val, ok := strings.Cut(line, ":")
+		if !ok || strings.HasPrefix(line, " ") || strings.HasPrefix(line, "\t") {
+			continue
+		}
+		if val = strings.TrimSpace(val); val == "" || strings.EqualFold(val, "UNKNOWN") {
+			continue
+		}
+		switch strings.ToLower(strings.TrimSpace(key)) {
+		case "home-page":
+			info.Homepage = val
+		case "download-url":
+			info.ProjectURLs["Download-URL"] = cmp.Or(info.ProjectURLs["Download-URL"], val)
+		case "project-url":
+			label, u, _ := strings.Cut(val, ",")
+			if label, u = strings.TrimSpace(label), strings.TrimSpace(u); label != "" && u != "" && !strings.EqualFold(u, "UNKNOWN") {
+				info.ProjectURLs[label] = cmp.Or(info.ProjectURLs[label], u)
+			}
+		}
+	}
+	return info
 }
 
 func (Rebuilder) CloneRepo(ctx context.Context, t rebuild.Target, repoURI string, ropt *gitx.RepositoryOptions) (r rebuild.RepoConfig, err error) {

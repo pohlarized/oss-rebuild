@@ -4,8 +4,10 @@
 package pypi
 
 import (
+	"archive/tar"
 	"archive/zip"
 	"bytes"
+	"compress/gzip"
 	"context"
 	"debug/elf"
 	"errors"
@@ -14,6 +16,7 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+	"testing/iotest"
 	"time"
 
 	"github.com/google/go-cmp/cmp"
@@ -456,6 +459,230 @@ func TestInferRepo(t *testing.T) {
 			}
 			if got != tc.want {
 				t.Errorf("InferRepo() = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
+type readFunc func([]byte) (int, error)
+
+func (f readFunc) Read(p []byte) (int, error) { return f(p) }
+
+func TestInferRepoFromSourceDist(t *testing.T) {
+	tarFile := func(name, body string) archive.TarEntry {
+		return archive.TarEntry{
+			Header: &tar.Header{Name: name, Typeflag: tar.TypeReg, Size: int64(len(body)), Mode: 0o644},
+			Body:   []byte(body),
+		}
+	}
+	protobufPkgInfo := must(archivetest.TgzFile([]archive.TarEntry{
+		tarFile("protobuf-5.29.5/PKG-INFO", "Metadata-Version: 2.1\nName: protobuf\nVersion: 5.29.5\nHome-page: https://developers.google.com/protocol-buffers/\nProject-URL: Tracker, https://github.com/protocolbuffers/other/issues\nProject-URL: Source, https://github.com/protocolbuffers/protobuf\n\nBody text.\n"),
+	}))
+	protobufDownloadOnly := must(archivetest.TgzFile([]archive.TarEntry{
+		tarFile("protobuf-4.21.6/PKG-INFO", "Metadata-Version: 2.1\nName: protobuf\nVersion: 4.21.6\nHome-page: https://developers.google.com/protocol-buffers/\nDownload-URL: https://github.com/protocolbuffers/protobuf/releases\n"),
+	}))
+	protobufBodyOnly := must(archivetest.TgzFile([]archive.TarEntry{
+		tarFile("protobuf-5.29.5/sub/PKG-INFO", "Metadata-Version: 2.1\nName: decoy\nVersion: 5.29.5\nProject-URL: Source, https://github.com/other/decoy\n"),
+		tarFile("protobuf-5.29.5/PKG-INFO", "Metadata-Version: 2.1\nName: protobuf\nVersion: 5.29.5\nHome-page: UNKNOWN\n\nSee https://github.com/protocolbuffers/protobuf for source.\n"),
+	}))
+	var corruptTar bytes.Buffer
+	gw := gzip.NewWriter(&corruptTar)
+	must(gw.Write([]byte("not-a-tar-header")))
+	if err := gw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	protobuf529URL := "https://files.pythonhosted.org/protobuf-5.29.5.tar.gz"
+	protobuf529Rel := fmt.Sprintf(`{"info":{"name":"protobuf","version":"5.29.5","home_page":"https://developers.google.com/protocol-buffers/"},"urls":[{"filename":"protobuf-5.29.5.tar.gz","packagetype":"sdist","url":%q,"size":%d}]}`, protobuf529URL, protobufPkgInfo.Len())
+	protobuf421URL := "https://files.pythonhosted.org/protobuf-4.21.6.tar.gz"
+	protobuf421Rel := fmt.Sprintf(`{"info":{"name":"protobuf","version":"4.21.6","home_page":"https://developers.google.com/protocol-buffers/"},"urls":[{"filename":"protobuf-4.21.6.tar.gz","packagetype":"sdist","url":%q,"size":%d}]}`, protobuf421URL, protobufDownloadOnly.Len())
+	protobufBodyRel := fmt.Sprintf(`{"info":{"name":"protobuf","version":"5.29.5"},"urls":[{"filename":"protobuf-5.29.5.tar.gz","packagetype":"sdist","url":%q,"size":%d}]}`, protobuf529URL, protobufBodyOnly.Len())
+	staticCalls := func(calls ...httpxtest.Call) func(context.CancelFunc) []httpxtest.Call {
+		return func(context.CancelFunc) []httpxtest.Call { return calls }
+	}
+	for _, tc := range []struct {
+		name         string
+		cancelBefore bool
+		wantCanceled bool
+		target       rebuild.Target
+		calls        func(context.CancelFunc) []httpxtest.Call
+		want         string
+		wantErr      string
+	}{
+		{
+			name:   "PkgInfoProjectURLSource",
+			target: rebuild.Target{Ecosystem: rebuild.PyPI, Package: "protobuf", Version: "5.29.5"},
+			calls: staticCalls(
+				httpxtest.Call{URL: "https://pypi.org/pypi/protobuf/5.29.5/json", Response: &http.Response{StatusCode: 200, Body: httpxtest.Body(protobuf529Rel)}},
+				httpxtest.Call{URL: "https://pypi.org/pypi/protobuf/json", Response: &http.Response{StatusCode: 200, Body: httpxtest.Body(`{"info":{"name":"protobuf","home_page":"https://developers.google.com/protocol-buffers/"}}`)}},
+				httpxtest.Call{URL: "https://pypi.org/pypi/protobuf/5.29.5/json", Response: &http.Response{StatusCode: 200, Body: httpxtest.Body(protobuf529Rel)}},
+				httpxtest.Call{URL: protobuf529URL, Response: &http.Response{StatusCode: 200, Body: httpxtest.Body(protobufPkgInfo.String())}},
+			),
+			want: "https://github.com/protocolbuffers/protobuf",
+		},
+		{
+			name:   "PkgInfoDownloadURL",
+			target: rebuild.Target{Ecosystem: rebuild.PyPI, Package: "protobuf", Version: "4.21.6"},
+			calls: staticCalls(
+				httpxtest.Call{URL: "https://pypi.org/pypi/protobuf/4.21.6/json", Response: &http.Response{StatusCode: 200, Body: httpxtest.Body(protobuf421Rel)}},
+				httpxtest.Call{URL: "https://pypi.org/pypi/protobuf/json", Response: &http.Response{StatusCode: 200, Body: httpxtest.Body(`{"info":{"name":"protobuf","home_page":"https://developers.google.com/protocol-buffers/"}}`)}},
+				httpxtest.Call{URL: "https://pypi.org/pypi/protobuf/4.21.6/json", Response: &http.Response{StatusCode: 200, Body: httpxtest.Body(protobuf421Rel)}},
+				httpxtest.Call{URL: protobuf421URL, Response: &http.Response{StatusCode: 200, Body: httpxtest.Body(protobufDownloadOnly.String())}},
+			),
+			want: "https://github.com/protocolbuffers/protobuf",
+		},
+		{
+			name:   "PkgInfoDescription",
+			target: rebuild.Target{Ecosystem: rebuild.PyPI, Package: "protobuf", Version: "5.29.5"},
+			calls: staticCalls(
+				httpxtest.Call{URL: "https://pypi.org/pypi/protobuf/5.29.5/json", Response: &http.Response{StatusCode: 200, Body: httpxtest.Body(protobufBodyRel)}},
+				httpxtest.Call{URL: "https://pypi.org/pypi/protobuf/json", Response: &http.Response{StatusCode: 200, Body: httpxtest.Body(`{"info":{"name":"protobuf"}}`)}},
+				httpxtest.Call{URL: "https://pypi.org/pypi/protobuf/5.29.5/json", Response: &http.Response{StatusCode: 200, Body: httpxtest.Body(protobufBodyRel)}},
+				httpxtest.Call{URL: protobuf529URL, Response: &http.Response{StatusCode: 200, Body: httpxtest.Body(protobufBodyOnly.String())}},
+			),
+			want: "https://github.com/protocolbuffers/protobuf",
+		},
+		{
+			name:   "MissingSdist",
+			target: rebuild.Target{Ecosystem: rebuild.PyPI, Package: "protobuf", Version: "5.29.5"},
+			calls: staticCalls(
+				httpxtest.Call{URL: "https://pypi.org/pypi/protobuf/5.29.5/json", Response: &http.Response{StatusCode: 200, Body: httpxtest.Body(`{"info":{"name":"protobuf","version":"5.29.5"},"urls":[{"filename":"protobuf-5.29.5-py3-none-any.whl","packagetype":"bdist_wheel","size":100}]}`)}},
+				httpxtest.Call{URL: "https://pypi.org/pypi/protobuf/json", Response: &http.Response{StatusCode: 200, Body: httpxtest.Body(`{"info":{"name":"protobuf"}}`)}},
+			),
+			wantErr: "no git repo",
+		},
+		{
+			name:   "OversizedSdistSkipped",
+			target: rebuild.Target{Ecosystem: rebuild.PyPI, Package: "protobuf", Version: "5.29.5"},
+			calls: staticCalls(
+				httpxtest.Call{URL: "https://pypi.org/pypi/protobuf/5.29.5/json", Response: &http.Response{StatusCode: 200, Body: httpxtest.Body(fmt.Sprintf(`{"info":{"name":"protobuf","version":"5.29.5"},"urls":[{"filename":"protobuf-5.29.5.tar.gz","packagetype":"sdist","size":%d}]}`, maxSdistBytes+1))}},
+				httpxtest.Call{URL: "https://pypi.org/pypi/protobuf/json", Response: &http.Response{StatusCode: 200, Body: httpxtest.Body(`{"info":{"name":"protobuf"}}`)}},
+			),
+			wantErr: "no git repo",
+		},
+		{
+			name:   "CorruptGzipFailsOpen",
+			target: rebuild.Target{Ecosystem: rebuild.PyPI, Package: "protobuf", Version: "5.29.5"},
+			calls: staticCalls(
+				httpxtest.Call{URL: "https://pypi.org/pypi/protobuf/5.29.5/json", Response: &http.Response{StatusCode: 200, Body: httpxtest.Body(protobuf529Rel)}},
+				httpxtest.Call{URL: "https://pypi.org/pypi/protobuf/json", Response: &http.Response{StatusCode: 200, Body: httpxtest.Body(`{"info":{"name":"protobuf"}}`)}},
+				httpxtest.Call{URL: "https://pypi.org/pypi/protobuf/5.29.5/json", Response: &http.Response{StatusCode: 200, Body: httpxtest.Body(protobuf529Rel)}},
+				httpxtest.Call{URL: protobuf529URL, Response: &http.Response{StatusCode: 200, Body: httpxtest.Body("not-a-gzip")}},
+			),
+			wantErr: "no git repo",
+		},
+		{
+			name:   "CorruptTarFailsOpen",
+			target: rebuild.Target{Ecosystem: rebuild.PyPI, Package: "protobuf", Version: "5.29.5"},
+			calls: staticCalls(
+				httpxtest.Call{URL: "https://pypi.org/pypi/protobuf/5.29.5/json", Response: &http.Response{StatusCode: 200, Body: httpxtest.Body(protobuf529Rel)}},
+				httpxtest.Call{URL: "https://pypi.org/pypi/protobuf/json", Response: &http.Response{StatusCode: 200, Body: httpxtest.Body(`{"info":{"name":"protobuf"}}`)}},
+				httpxtest.Call{URL: "https://pypi.org/pypi/protobuf/5.29.5/json", Response: &http.Response{StatusCode: 200, Body: httpxtest.Body(protobuf529Rel)}},
+				httpxtest.Call{URL: protobuf529URL, Response: &http.Response{StatusCode: 200, Body: httpxtest.Body(corruptTar.String())}},
+			),
+			wantErr: "no git repo",
+		},
+		{
+			name:   "TruncatedArchiveFailsOpen",
+			target: rebuild.Target{Ecosystem: rebuild.PyPI, Package: "protobuf", Version: "5.29.5"},
+			calls: staticCalls(
+				httpxtest.Call{URL: "https://pypi.org/pypi/protobuf/5.29.5/json", Response: &http.Response{StatusCode: 200, Body: httpxtest.Body(protobuf529Rel)}},
+				httpxtest.Call{URL: "https://pypi.org/pypi/protobuf/json", Response: &http.Response{StatusCode: 200, Body: httpxtest.Body(`{"info":{"name":"protobuf"}}`)}},
+				httpxtest.Call{URL: "https://pypi.org/pypi/protobuf/5.29.5/json", Response: &http.Response{StatusCode: 200, Body: httpxtest.Body(protobuf529Rel)}},
+				httpxtest.Call{URL: protobuf529URL, Response: &http.Response{StatusCode: 200, Body: httpxtest.Body(protobufPkgInfo.String()[:protobufPkgInfo.Len()/2])}},
+			),
+			wantErr: "no git repo",
+		},
+		{
+			name:   "RegistryErrorFailsClosed",
+			target: rebuild.Target{Ecosystem: rebuild.PyPI, Package: "protobuf", Version: "5.29.5"},
+			calls: staticCalls(
+				httpxtest.Call{URL: "https://pypi.org/pypi/protobuf/5.29.5/json", Response: &http.Response{StatusCode: 200, Body: httpxtest.Body(protobuf529Rel)}},
+				httpxtest.Call{URL: "https://pypi.org/pypi/protobuf/json", Response: &http.Response{StatusCode: 200, Body: httpxtest.Body(`{"info":{"name":"protobuf"}}`)}},
+				httpxtest.Call{URL: "https://pypi.org/pypi/protobuf/5.29.5/json", Response: &http.Response{StatusCode: 200, Body: httpxtest.Body(protobuf529Rel)}},
+				httpxtest.Call{URL: protobuf529URL, Response: &http.Response{StatusCode: 503, Status: "503 Service Unavailable", Body: httpxtest.Body("")}},
+			),
+			wantErr: "fetching sdist",
+		},
+		{
+			name:   "MidStreamReadErrorFailsClosed",
+			target: rebuild.Target{Ecosystem: rebuild.PyPI, Package: "protobuf", Version: "5.29.5"},
+			calls: staticCalls(
+				httpxtest.Call{URL: "https://pypi.org/pypi/protobuf/5.29.5/json", Response: &http.Response{StatusCode: 200, Body: httpxtest.Body(protobuf529Rel)}},
+				httpxtest.Call{URL: "https://pypi.org/pypi/protobuf/json", Response: &http.Response{StatusCode: 200, Body: httpxtest.Body(`{"info":{"name":"protobuf"}}`)}},
+				httpxtest.Call{URL: "https://pypi.org/pypi/protobuf/5.29.5/json", Response: &http.Response{StatusCode: 200, Body: httpxtest.Body(protobuf529Rel)}},
+				httpxtest.Call{URL: protobuf529URL, Response: &http.Response{StatusCode: 200, Body: io.NopCloser(io.MultiReader(bytes.NewReader(protobufPkgInfo.Bytes()[:16]), iotest.ErrReader(errors.New("connection reset"))))}},
+			),
+			wantErr: "reading sdist protobuf-5.29.5.tar.gz: connection reset",
+		},
+		{
+			name:         "CanceledBeforeCallAborts",
+			cancelBefore: true,
+			wantCanceled: true,
+			target:       rebuild.Target{Ecosystem: rebuild.PyPI, Package: "protobuf", Version: "5.29.5"},
+			wantErr:      context.Canceled.Error(),
+		},
+		{
+			name:         "CanceledDuringReleaseAborts",
+			wantCanceled: true,
+			target:       rebuild.Target{Ecosystem: rebuild.PyPI, Package: "protobuf", Version: "5.29.5"},
+			calls: func(cancel context.CancelFunc) []httpxtest.Call {
+				return []httpxtest.Call{
+					{URL: "https://pypi.org/pypi/protobuf/5.29.5/json", Response: &http.Response{StatusCode: 200, Body: io.NopCloser(readFunc(func([]byte) (int, error) {
+						cancel()
+						return 0, context.Canceled
+					}))}},
+				}
+			},
+			wantErr: context.Canceled.Error(),
+		},
+		{
+			name:         "CanceledDuringSdistReadAborts",
+			wantCanceled: true,
+			target:       rebuild.Target{Ecosystem: rebuild.PyPI, Package: "protobuf", Version: "5.29.5"},
+			calls: func(cancel context.CancelFunc) []httpxtest.Call {
+				r := bytes.NewReader(protobufPkgInfo.Bytes())
+				return []httpxtest.Call{
+					{URL: "https://pypi.org/pypi/protobuf/5.29.5/json", Response: &http.Response{StatusCode: 200, Body: httpxtest.Body(protobuf529Rel)}},
+					{URL: "https://pypi.org/pypi/protobuf/json", Response: &http.Response{StatusCode: 200, Body: httpxtest.Body(`{"info":{"name":"protobuf"}}`)}},
+					{URL: "https://pypi.org/pypi/protobuf/5.29.5/json", Response: &http.Response{StatusCode: 200, Body: httpxtest.Body(protobuf529Rel)}},
+					{URL: protobuf529URL, Response: &http.Response{StatusCode: 200, Body: io.NopCloser(readFunc(func(p []byte) (int, error) {
+						cancel()
+						return r.Read(p)
+					}))}},
+				}
+			},
+			wantErr: context.Canceled.Error(),
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			if tc.cancelBefore {
+				cancel()
+			}
+			var calls []httpxtest.Call
+			if tc.calls != nil {
+				calls = tc.calls(cancel)
+			}
+			mux := rebuild.RegistryMux{PyPI: pypireg.HTTPRegistry{Client: &httpxtest.MockClient{Calls: calls, URLValidator: httpxtest.NewURLValidator(t)}}}
+			got, err := Rebuilder{}.InferRepo(ctx, tc.target, mux)
+			if tc.wantErr != "" {
+				if err == nil {
+					t.Fatalf("InferRepo() = %q, nil error, want error containing %q", got, tc.wantErr)
+				}
+				if !strings.Contains(err.Error(), tc.wantErr) {
+					t.Errorf("InferRepo() error = %v, want substring %q", err, tc.wantErr)
+				}
+				if tc.wantCanceled && !errors.Is(err, context.Canceled) {
+					t.Errorf("InferRepo() error = %v, want context.Canceled", err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("InferRepo() error = %v", err)
+			}
+			if diff := cmp.Diff(tc.want, got); diff != "" {
+				t.Errorf("InferRepo() diff (-want +got):\n%s", diff)
 			}
 		})
 	}
