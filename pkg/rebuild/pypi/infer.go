@@ -258,7 +258,7 @@ func extractPlatformTag(filename string) string {
 	return extractWheelTags(filename).Platform
 }
 
-func inferRequirements(name, version string, buildDirHasLicense bool, zr *zip.Reader) ([]string, error) {
+func inferRequirements(name, version string, tags WheelTags, buildDirHasLicense bool, zr *zip.Reader) ([]string, error) {
 	distInfoDir, err := getDistInfoDir(name, version, zr)
 	if err != nil {
 		wheelPath := path.Join(expectedDistInfoDir(name, version), "WHEEL")
@@ -274,7 +274,7 @@ func inferRequirements(name, version string, buildDirHasLicense bool, zr *zip.Re
 	if err != nil {
 		return nil, errors.Wrapf(err, "[INTERNAL] Failed to extract upstream %s", metadataPath)
 	}
-	reqs, err := getGenerator(version, buildDirHasLicense, wheel, metadata)
+	reqs, err := getGenerator(version, tags, buildDirHasLicense, wheel, metadata)
 	if err != nil {
 		return nil, errors.Wrapf(err, "[INTERNAL] Failed to get upstream generator")
 	}
@@ -672,7 +672,7 @@ func inferBuild(ctx context.Context, t rebuild.Target, mux rebuild.RegistryMux, 
 		if err != nil {
 			return nil, errors.Wrap(err, "inspecting build directory license files")
 		}
-		reqs, err = inferRequirements(release.Name, version, hasLicense, zr)
+		reqs, err = inferRequirements(release.Name, version, extractWheelTags(a.Filename), hasLicense, zr)
 		if err != nil {
 			return nil, err
 		}
@@ -1033,9 +1033,9 @@ var maturinPat = re.MustCompile(`^Generator: maturin \(([\d\.]+)\)`)
 
 // getGenerator returns the pins identifying the wheel's build backend from its
 // Generator line. bdist_wheel names the wheel packaging tool, not setuptools,
-// whose version is instead bounded by the metadata era and build directory
-// license files.
-func getGenerator(targetVersion string, buildDirHasLicense bool, wheel, metadata []byte) (reqs []string, err error) {
+// whose version is instead bounded by the metadata era, build directory license
+// files, and target Python interpreter compatibility.
+func getGenerator(targetVersion string, tags WheelTags, buildDirHasLicense bool, wheel, metadata []byte) (reqs []string, err error) {
 	for line := range bytes.Lines(wheel) {
 		sep := bytes.IndexRune(line, ':')
 		if sep == -1 {
@@ -1045,7 +1045,7 @@ func getGenerator(targetVersion string, buildDirHasLicense bool, wheel, metadata
 		key, value := line[:sep], bytes.TrimSpace(line[sep+1:])
 		if bytes.Equal(key, []byte("Generator")) {
 			if matches := bdistWheelPat.FindSubmatch(line); matches != nil {
-				return []string{"wheel==" + string(matches[1]), setuptoolsCeiling(buildDirHasLicense, metadata)}, nil
+				return []string{"wheel==" + string(matches[1]), setuptoolsCeiling(tags, buildDirHasLicense, metadata)}, nil
 			} else if matches := setuptoolsPat.FindSubmatch(line); matches != nil {
 				stamped := string(matches[1])
 				// NOTE: pyproject_hooks _BackendPathFinder drops context.name when
@@ -1092,17 +1092,40 @@ func getGenerator(targetVersion string, buildDirHasLicense bool, wheel, metadata
 // NOTE: These version ceilings pin with <= rather than == as timewarp will
 // fail to resolve equality constraints where registry_time is configured
 // before that version's release (which has been observed).
-func setuptoolsCeiling(buildDirHasLicense bool, metadata []byte) string {
+func setuptoolsCeiling(tags WheelTags, buildDirHasLicense bool, metadata []byte) string {
 	switch {
+	case requiresBundledDistutils(tags.Python):
+		// CPython 3.12+ removed stdlib distutils and pkgutil.ImpImporter, so
+		// setuptools below 66.1.0 cannot run on the target interpreter.
 	case buildDirHasLicense && !bytes.Contains(metadata, []byte("License-File")):
 		// License-File was introduced in setuptools 57.0.0 when a license file is present.
 		return setuptoolsCeilingPrefix + "56.2.0"
 	case bytes.Contains(metadata, []byte("Platform: UNKNOWN")):
 		// Later versions omit the unknown platform, so this is an older setuptools.
 		return setuptoolsCeilingPrefix + "57.5.0"
-	default:
-		return setuptoolsCeilingPrefix + "67.7.2"
 	}
+	return setuptoolsCeilingPrefix + "67.7.2"
+}
+
+// cpythonTagPat parses major and minor version digits from a CPython wheel tag such as cp312.
+var cpythonTagPat = re.MustCompile(`^cp(\d)(\d+)$`)
+
+// requiresBundledDistutils reports whether pythonTag selects CPython 3.12 or
+// newer, where stdlib distutils and pkgutil.ImpImporter were removed so
+// setuptools below 60 (and pkg_resources below 66.1.0) fails to import.
+func requiresBundledDistutils(pythonTag string) bool {
+	for tag := range strings.SplitSeq(pythonTag, ".") {
+		m := cpythonTagPat.FindStringSubmatch(tag)
+		if m == nil {
+			return false
+		}
+		major, err1 := strconv.Atoi(m[1])
+		minor, err2 := strconv.Atoi(m[2])
+		if err1 != nil || err2 != nil || major < 3 || (major == 3 && minor < 12) {
+			return false
+		}
+	}
+	return true
 }
 
 // licenseFilePat matches the default setuptools license_files globs

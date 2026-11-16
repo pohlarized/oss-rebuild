@@ -81,6 +81,7 @@ func TestInferRequirements(t *testing.T) {
 	tests := []struct {
 		name               string
 		version            string
+		tags               WheelTags
 		buildDirHasLicense bool
 		wheel              string
 		metadata           string
@@ -91,12 +92,38 @@ func TestInferRequirements(t *testing.T) {
 		{name: "bdist_wheel with modern metadata", buildDirHasLicense: true, wheel: bdist, metadata: modern, want: []string{"wheel==0.40.0", "setuptools<=67.7.2"}},
 		{
 			name:     "BdistWheelWithoutLicenseFileInBuildDirSkips56Ceiling",
+			tags:     WheelTags{Python: "cp311"},
 			wheel:    bdist,
 			metadata: "Metadata-Version: 2.1\nName: x\n",
 			want:     []string{"wheel==0.40.0", "setuptools<=67.7.2"},
 		},
 		{
 			name:               "BdistWheelWithLicenseFileInBuildDirKeeps56Ceiling",
+			tags:               WheelTags{Python: "cp311"},
+			buildDirHasLicense: true,
+			wheel:              bdist,
+			metadata:           "Metadata-Version: 2.1\nName: x\n",
+			want:               []string{"wheel==0.40.0", "setuptools<=56.2.0"},
+		},
+		{
+			name:               "BdistWheelCp312Skips56Ceiling",
+			tags:               WheelTags{Python: "cp312"},
+			buildDirHasLicense: true,
+			wheel:              bdist,
+			metadata:           "Metadata-Version: 2.1\nName: x\n",
+			want:               []string{"wheel==0.40.0", "setuptools<=67.7.2"},
+		},
+		{
+			name:               "BdistWheelCp313Skips57Ceiling",
+			tags:               WheelTags{Python: "cp313"},
+			buildDirHasLicense: true,
+			wheel:              bdist,
+			metadata:           modern + "Platform: UNKNOWN\n",
+			want:               []string{"wheel==0.40.0", "setuptools<=67.7.2"},
+		},
+		{
+			name:               "BdistWheelCp36Abi3KeepsPre60Ceiling",
+			tags:               WheelTags{Python: "cp36"},
 			buildDirHasLicense: true,
 			wheel:              bdist,
 			metadata:           "Metadata-Version: 2.1\nName: x\n",
@@ -125,7 +152,7 @@ func TestInferRequirements(t *testing.T) {
 				version = "1.0"
 			}
 			zr := wheelZipReader(t, "testpkg", version, tt.wheel, tt.metadata)
-			got, err := inferRequirements("testpkg", version, tt.buildDirHasLicense, zr)
+			got, err := inferRequirements("testpkg", version, tt.tags, tt.buildDirHasLicense, zr)
 			if err != nil {
 				t.Fatalf("inferRequirements() error = %v", err)
 			}
@@ -133,6 +160,26 @@ func TestInferRequirements(t *testing.T) {
 				t.Errorf("inferRequirements() diff (-want +got):\n%s", diff)
 			}
 		})
+	}
+}
+
+func TestRequiresBundledDistutils(t *testing.T) {
+	for _, tc := range []struct {
+		pythonTag string
+		want      bool
+	}{
+		{"", false},
+		{"cp311", false},
+		{"cp312", true},
+		{"cp313", true},
+		{"cp311.cp312", false},
+		{"cp312.cp313", true},
+		{"pp310", false},
+		{"py3", false},
+	} {
+		if got := requiresBundledDistutils(tc.pythonTag); got != tc.want {
+			t.Errorf("requiresBundledDistutils(%q) = %t, want %t", tc.pythonTag, got, tc.want)
+		}
 	}
 }
 
@@ -935,7 +982,7 @@ func TestGetGenerator(t *testing.T) {
 		{wheel: "Wheel-Version: 1.0\nGenerator: maturin (1.7.4)\nRoot-Is-Purelib: false\n", want: []string{"maturin==1.7.4"}},
 		{wheel: "Wheel-Version: 1.0\nRoot-Is-Purelib: true\nTag: py3-none-any\n", wantErr: true},
 	} {
-		got, err := getGenerator("1.0" /* buildDirHasLicense= */, false, []byte(tc.wheel), nil)
+		got, err := getGenerator("1.0", WheelTags{} /* buildDirHasLicense= */, false, []byte(tc.wheel), nil)
 		if (err != nil) != tc.wantErr || !cmp.Equal(got, tc.want) {
 			t.Errorf("getGenerator(%q) = %v, %v, want %v (error %t)", tc.wheel, got, err, tc.want, tc.wantErr)
 		}
@@ -1574,6 +1621,26 @@ func TestInferStrategySetuptoolsCeilingSoundness(t *testing.T) {
 			metadata:  "Metadata-Version: 2.1\nName: customlic\nVersion: 1.0.0\n",
 			wantDir:   "",
 			wantReqs:  []string{"wheel==0.37.1", "setuptools<=56.2.0"},
+		},
+		{
+			name:     "Cp312WheelSkipsPre60SetuptoolsCeiling",
+			pkg:      "ujson",
+			version:  "5.10.0",
+			filename: "ujson-5.10.0-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.whl",
+			repoYAML: `commits:
+  - id: release-commit
+    tag: 5.10.0
+    files:
+      LICENSE.txt: |
+        BSD-3-Clause
+      setup.py: |
+        from setuptools import setup
+        setup(name="ujson", version="5.10.0")
+`,
+			wheelFile: "Wheel-Version: 1.0\nGenerator: bdist_wheel (0.43.0)\nRoot-Is-Purelib: false\nTag: cp312-cp312-manylinux2014_x86_64\n",
+			metadata:  "Metadata-Version: 2.1\nName: ujson\nVersion: 5.10.0\n",
+			wantDir:   "",
+			wantReqs:  []string{"wheel==0.43.0", "setuptools<=67.7.2"},
 		},
 		{
 			name:     "LowerBoundSetuptoolsOnAbi3Wheel",
