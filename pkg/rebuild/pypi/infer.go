@@ -33,6 +33,7 @@ import (
 	"github.com/google/oss-rebuild/pkg/registry/cratesio"
 	pypireg "github.com/google/oss-rebuild/pkg/registry/pypi"
 	"github.com/msuozzo/go-git2"
+	"github.com/pelletier/go-toml/v2"
 	"github.com/pkg/errors"
 )
 
@@ -75,7 +76,7 @@ func (Rebuilder) Published(ctx context.Context, t rebuild.Target, mux rebuild.Re
 //	other mentions, release then project:
 //	  - a link under any other name, on a known repo host
 //	  - the first repository cited in the description
-//	the same order on links from the release sdist's PKG-INFO
+//	the same order on links from the release sdist's PKG-INFO and Cargo.toml
 func (Rebuilder) InferRepo(ctx context.Context, t rebuild.Target, mux rebuild.RegistryMux) (string, error) {
 	if err := ctx.Err(); err != nil {
 		return "", err
@@ -175,13 +176,14 @@ func otherRepoLinks(info pypireg.Info) []string {
 }
 
 const (
-	maxSdistBytes   = 64 << 20 // empirical upper bound on compressed sdist size scanned for metadata
-	maxPkgInfoBytes = 1 << 20  // empirical upper bound on uncompressed PKG-INFO size
+	maxSdistBytes        = 64 << 20 // empirical upper bound on compressed sdist size scanned for metadata
+	maxMetadataFileBytes = 1 << 20  // empirical upper bound on uncompressed PKG-INFO or Cargo.toml size
 )
 
-// sdistMetadataInfo extracts repository links from a top-level PKG-INFO file
-// in the release's .tar.gz sdist when PyPI JSON omits them. Archive parse
-// errors return empty metadata so a corrupt candidate does not abort inference.
+// sdistMetadataInfo extracts repository links from top-level PKG-INFO and
+// Cargo.toml files in the release's .tar.gz sdist when PyPI JSON omits them.
+// Archive and manifest parse errors keep any metadata already read so a
+// corrupt candidate does not abort inference.
 func sdistMetadataInfo(ctx context.Context, mux rebuild.RegistryMux, pkg, version string, release *pypireg.Release) (pypireg.Info, error) {
 	if err := ctx.Err(); err != nil {
 		return pypireg.Info{}, err
@@ -196,16 +198,22 @@ func sdistMetadataInfo(ctx context.Context, mux rebuild.RegistryMux, pkg, versio
 	}
 	defer rc.Close()
 	src := &readErrRecorder{r: rc}
-	pkgInfo, err := readSdistPkgInfo(ctx, io.LimitReader(src, maxSdistBytes))
+	pkgInfo, cargoTOML, err := readSdistMetadataFiles(ctx, io.LimitReader(src, maxSdistBytes))
 	switch {
 	case ctx.Err() != nil:
 		return pypireg.Info{}, ctx.Err()
 	case src.err != nil:
 		return pypireg.Info{}, errors.Wrapf(src.err, "reading sdist %s", a.Filename)
-	case err != nil:
+	case err != nil && pkgInfo == nil && cargoTOML == nil:
 		return pypireg.Info{}, nil
 	}
-	return parsePkgInfo(pkgInfo), nil
+	info := parsePkgInfo(pkgInfo)
+	if len(cargoTOML) > 0 && repoFromSourceLinks(info) == "" {
+		if repo := parseCargoRepo(cargoTOML); repo != "" {
+			info.ProjectURLs["Repository"] = repo
+		}
+	}
+	return info, nil
 }
 
 // readErrRecorder records the first non-EOF error from r so callers can tell
@@ -223,30 +231,47 @@ func (r *readErrRecorder) Read(p []byte) (int, error) {
 	return n, err
 }
 
-func readSdistPkgInfo(ctx context.Context, r io.Reader) ([]byte, error) {
+func readSdistMetadataFiles(ctx context.Context, r io.Reader) (pkgInfo, cargoTOML []byte, err error) {
 	gr, err := gzip.NewReader(r)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	defer gr.Close()
 	tr := tar.NewReader(gr)
-	for {
+	for pkgInfo == nil || cargoTOML == nil {
 		if err := ctx.Err(); err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		hdr, err := tr.Next()
-		if err != nil {
-			return nil, err
+		if err == io.EOF {
+			return pkgInfo, cargoTOML, nil
 		}
-		if (hdr.Typeflag != tar.TypeReg && hdr.Typeflag != tar.TypeRegA) || hdr.Size <= 0 || hdr.Size > maxPkgInfoBytes {
+		if err != nil {
+			return pkgInfo, cargoTOML, err
+		}
+		if (hdr.Typeflag != tar.TypeReg && hdr.Typeflag != tar.TypeRegA) || hdr.Size <= 0 || hdr.Size > maxMetadataFileBytes {
 			continue
 		}
 		dir, name, ok := strings.Cut(path.Clean(strings.TrimPrefix(hdr.Name, "./")), "/")
-		if !ok || dir == "" || dir == ".." || name != "PKG-INFO" {
+		if !ok || dir == "" || dir == ".." {
 			continue
 		}
-		return io.ReadAll(io.LimitReader(tr, maxPkgInfoBytes))
+		if (name == "PKG-INFO" && pkgInfo == nil) || (name == "Cargo.toml" && cargoTOML == nil) {
+			b, err := io.ReadAll(io.LimitReader(tr, maxMetadataFileBytes))
+			if err != nil {
+				return pkgInfo, cargoTOML, err
+			}
+			if name == "PKG-INFO" {
+				pkgInfo = b
+				if repoFromSourceLinks(parsePkgInfo(pkgInfo)) != "" {
+					return pkgInfo, cargoTOML, nil
+				}
+			} else {
+				cargoTOML = b
+			}
+		}
 	}
+	return pkgInfo, cargoTOML, nil
 }
 
 // parsePkgInfo extracts repository-bearing fields from a Core Metadata 2.1+
@@ -279,6 +304,31 @@ func parsePkgInfo(b []byte) pypireg.Info {
 		}
 	}
 	return info
+}
+
+func parseCargoRepo(b []byte) string {
+	// Repository is typed as any so `{ workspace = true }` tables do not abort decoding.
+	var cargo struct {
+		Package struct {
+			Repository any `toml:"repository"`
+		} `toml:"package"`
+		Workspace struct {
+			Package struct {
+				Repository any `toml:"repository"`
+			} `toml:"package"`
+		} `toml:"workspace"`
+	}
+	// Cargo tolerates a UTF-8 byte order mark in manifests, while go-toml does not.
+	if toml.Unmarshal(bytes.TrimPrefix(b, []byte("\xef\xbb\xbf")), &cargo) != nil {
+		return ""
+	}
+	for _, v := range []any{cargo.Package.Repository, cargo.Workspace.Package.Repository} {
+		s, _ := v.(string)
+		if s = strings.TrimSpace(s); s != "" && !strings.EqualFold(s, "UNKNOWN") {
+			return s
+		}
+	}
+	return ""
 }
 
 func (Rebuilder) CloneRepo(ctx context.Context, t rebuild.Target, repoURI string, ropt *gitx.RepositoryOptions) (r rebuild.RepoConfig, err error) {

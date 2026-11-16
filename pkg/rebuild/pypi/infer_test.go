@@ -485,8 +485,47 @@ func TestInferRepoFromSourceDist(t *testing.T) {
 		tarFile("protobuf-5.29.5/sub/PKG-INFO", "Metadata-Version: 2.1\nName: decoy\nVersion: 5.29.5\nProject-URL: Source, https://github.com/other/decoy\n"),
 		tarFile("protobuf-5.29.5/PKG-INFO", "Metadata-Version: 2.1\nName: protobuf\nVersion: 5.29.5\nHome-page: UNKNOWN\n\nSee https://github.com/protocolbuffers/protobuf for source.\n"),
 	}))
+	arro3WorkspaceCargo := must(archivetest.TgzFile([]archive.TarEntry{
+		tarFile("arro3_core-0.9.1/PKG-INFO", "Metadata-Version: 2.3\nName: arro3-core\nVersion: 0.9.1\nHome-Page: https://kylebarron.dev/arro3\n"),
+		tarFile("arro3_core-0.9.1/arro3-core/Cargo.toml", "[package]\nname = \"arro3-core\"\nrepository = \"https://github.com/other/decoy\"\n"),
+		tarFile("arro3_core-0.9.1/Cargo.toml", "[workspace.package]\nversion = \"0.9.1\"\nrepository = \"https://github.com/kylebarron/arro3\"\n"),
+	}))
+	cargoInheritedWorkspace := must(archivetest.TgzFile([]archive.TarEntry{
+		tarFile("rust_ext-0.1.0/Cargo.toml", "[package]\nname = \"rust-ext\"\nrepository = { workspace = true }\n\n[workspace.package]\nversion = \"0.1.0\"\nrepository = \"https://github.com/example/rust-workspace\"\n"),
+	}))
+	cargoPkg := must(archivetest.TgzFile([]archive.TarEntry{
+		tarFile("rust_ext-0.1.0/Cargo.toml", "\xef\xbb\xbf[package]\nname = \"rust-ext\"\nversion = \"0.1.0\"\nrepository = \"https://github.com/example/rust-ext.git\"\n"),
+	}))
+	pkgInfoOverridesCargo := must(archivetest.TgzFile([]archive.TarEntry{
+		tarFile("rust_ext-0.1.0/Cargo.toml", "[package]\nname = \"rust-ext\"\nversion = \"0.1.0\"\nrepository = \"https://github.com/example/cargo-repo\"\n"),
+		tarFile("rust_ext-0.1.0/PKG-INFO", "Metadata-Version: 2.1\nName: rust-ext\nVersion: 0.1.0\nProject-URL: Repository, https://github.com/example/pkg-info-repo\n"),
+	}))
+	invalidCargoWithBody := must(archivetest.TgzFile([]archive.TarEntry{
+		tarFile("rust_ext-0.1.0/Cargo.toml", "[package\nrepository ="),
+		tarFile("rust_ext-0.1.0/PKG-INFO", "Metadata-Version: 2.1\nName: rust-ext\nVersion: 0.1.0\n\nSee https://github.com/example/rust-ext for source.\n"),
+	}))
+	pkgInfoBodyOnly := must(archivetest.TgzFile([]archive.TarEntry{
+		tarFile("rust_ext-0.1.0/PKG-INFO", "Metadata-Version: 2.1\nName: rust-ext\nVersion: 0.1.0\n\nSee https://github.com/example/rust-ext for source.\n"),
+	}))
+	var rawTar bytes.Buffer
+	tw := tar.NewWriter(&rawTar)
+	partialPkgInfo := "Metadata-Version: 2.1\nName: rust-ext\nVersion: 0.1.0\n\nSee https://github.com/example/rust-ext for source.\n"
+	if err := tw.WriteHeader(&tar.Header{Name: "rust_ext-0.1.0/PKG-INFO", Typeflag: tar.TypeReg, Size: int64(len(partialPkgInfo)), Mode: 0o644}); err != nil {
+		t.Fatal(err)
+	}
+	must(tw.Write([]byte(partialPkgInfo)))
+	if err := tw.Flush(); err != nil {
+		t.Fatal(err)
+	}
+	rawTar.WriteString("corrupt-second-tar-header")
+	var corruptAfterPkgInfo bytes.Buffer
+	gw := gzip.NewWriter(&corruptAfterPkgInfo)
+	must(gw.Write(rawTar.Bytes()))
+	if err := gw.Close(); err != nil {
+		t.Fatal(err)
+	}
 	var corruptTar bytes.Buffer
-	gw := gzip.NewWriter(&corruptTar)
+	gw = gzip.NewWriter(&corruptTar)
 	must(gw.Write([]byte("not-a-tar-header")))
 	if err := gw.Close(); err != nil {
 		t.Fatal(err)
@@ -496,6 +535,15 @@ func TestInferRepoFromSourceDist(t *testing.T) {
 	protobuf421URL := "https://files.pythonhosted.org/protobuf-4.21.6.tar.gz"
 	protobuf421Rel := fmt.Sprintf(`{"info":{"name":"protobuf","version":"4.21.6","home_page":"https://developers.google.com/protocol-buffers/"},"urls":[{"filename":"protobuf-4.21.6.tar.gz","packagetype":"sdist","url":%q,"size":%d}]}`, protobuf421URL, protobufDownloadOnly.Len())
 	protobufBodyRel := fmt.Sprintf(`{"info":{"name":"protobuf","version":"5.29.5"},"urls":[{"filename":"protobuf-5.29.5.tar.gz","packagetype":"sdist","url":%q,"size":%d}]}`, protobuf529URL, protobufBodyOnly.Len())
+	arro3URL := "https://files.pythonhosted.org/arro3_core-0.9.1.tar.gz"
+	arro3Rel := fmt.Sprintf(`{"info":{"name":"arro3-core","version":"0.9.1","home_page":"https://kylebarron.dev/arro3"},"urls":[{"filename":"arro3_core-0.9.1.tar.gz","packagetype":"sdist","url":%q,"size":%d}]}`, arro3URL, arro3WorkspaceCargo.Len())
+	cargoURL := "https://files.pythonhosted.org/rust_ext-0.1.0.tar.gz"
+	inheritedRel := fmt.Sprintf(`{"info":{"name":"rust-ext","version":"0.1.0"},"urls":[{"filename":"rust_ext-0.1.0.tar.gz","packagetype":"sdist","url":%q,"size":%d}]}`, cargoURL, cargoInheritedWorkspace.Len())
+	cargoRel := fmt.Sprintf(`{"info":{"name":"rust-ext","version":"0.1.0"},"urls":[{"filename":"rust_ext-0.1.0.tar.gz","packagetype":"sdist","url":%q,"size":%d}]}`, cargoURL, cargoPkg.Len())
+	overrideRel := fmt.Sprintf(`{"info":{"name":"rust-ext","version":"0.1.0"},"urls":[{"filename":"rust_ext-0.1.0.tar.gz","packagetype":"sdist","url":%q,"size":%d}]}`, cargoURL, pkgInfoOverridesCargo.Len())
+	bodyRel := fmt.Sprintf(`{"info":{"name":"rust-ext","version":"0.1.0"},"urls":[{"filename":"rust_ext-0.1.0.tar.gz","packagetype":"sdist","url":%q,"size":%d}]}`, cargoURL, invalidCargoWithBody.Len())
+	corruptTailRel := fmt.Sprintf(`{"info":{"name":"rust-ext","version":"0.1.0"},"urls":[{"filename":"rust_ext-0.1.0.tar.gz","packagetype":"sdist","url":%q,"size":%d}]}`, cargoURL, corruptAfterPkgInfo.Len())
+	bodyOnlyRel := fmt.Sprintf(`{"info":{"name":"rust-ext","version":"0.1.0"},"urls":[{"filename":"rust_ext-0.1.0.tar.gz","packagetype":"sdist","url":%q,"size":%d}]}`, cargoURL, pkgInfoBodyOnly.Len())
 	staticCalls := func(calls ...httpxtest.Call) func(context.CancelFunc) []httpxtest.Call {
 		return func(context.CancelFunc) []httpxtest.Call { return calls }
 	}
@@ -540,6 +588,83 @@ func TestInferRepoFromSourceDist(t *testing.T) {
 				httpxtest.Call{URL: protobuf529URL, Response: &http.Response{StatusCode: 200, Body: httpxtest.Body(protobufBodyOnly.String())}},
 			),
 			want: "https://github.com/protocolbuffers/protobuf",
+		},
+		{
+			name:   "CargoWorkspaceRepository",
+			target: rebuild.Target{Ecosystem: rebuild.PyPI, Package: "arro3-core", Version: "0.9.1"},
+			calls: staticCalls(
+				httpxtest.Call{URL: "https://pypi.org/pypi/arro3-core/0.9.1/json", Response: &http.Response{StatusCode: 200, Body: httpxtest.Body(arro3Rel)}},
+				httpxtest.Call{URL: "https://pypi.org/pypi/arro3-core/json", Response: &http.Response{StatusCode: 200, Body: httpxtest.Body(`{"info":{"name":"arro3-core","home_page":"https://kylebarron.dev/arro3"}}`)}},
+				httpxtest.Call{URL: "https://pypi.org/pypi/arro3-core/0.9.1/json", Response: &http.Response{StatusCode: 200, Body: httpxtest.Body(arro3Rel)}},
+				httpxtest.Call{URL: arro3URL, Response: &http.Response{StatusCode: 200, Body: httpxtest.Body(arro3WorkspaceCargo.String())}},
+			),
+			want: "https://github.com/kylebarron/arro3",
+		},
+		{
+			name:   "CargoInheritedWorkspaceRepository",
+			target: rebuild.Target{Ecosystem: rebuild.PyPI, Package: "rust-ext", Version: "0.1.0"},
+			calls: staticCalls(
+				httpxtest.Call{URL: "https://pypi.org/pypi/rust-ext/0.1.0/json", Response: &http.Response{StatusCode: 200, Body: httpxtest.Body(inheritedRel)}},
+				httpxtest.Call{URL: "https://pypi.org/pypi/rust-ext/json", Response: &http.Response{StatusCode: 200, Body: httpxtest.Body(`{"info":{"name":"rust-ext"}}`)}},
+				httpxtest.Call{URL: "https://pypi.org/pypi/rust-ext/0.1.0/json", Response: &http.Response{StatusCode: 200, Body: httpxtest.Body(inheritedRel)}},
+				httpxtest.Call{URL: cargoURL, Response: &http.Response{StatusCode: 200, Body: httpxtest.Body(cargoInheritedWorkspace.String())}},
+			),
+			want: "https://github.com/example/rust-workspace",
+		},
+		{
+			name:   "CargoPackageRepository",
+			target: rebuild.Target{Ecosystem: rebuild.PyPI, Package: "rust-ext", Version: "0.1.0"},
+			calls: staticCalls(
+				httpxtest.Call{URL: "https://pypi.org/pypi/rust-ext/0.1.0/json", Response: &http.Response{StatusCode: 200, Body: httpxtest.Body(cargoRel)}},
+				httpxtest.Call{URL: "https://pypi.org/pypi/rust-ext/json", Response: &http.Response{StatusCode: 200, Body: httpxtest.Body(`{"info":{"name":"rust-ext"}}`)}},
+				httpxtest.Call{URL: "https://pypi.org/pypi/rust-ext/0.1.0/json", Response: &http.Response{StatusCode: 200, Body: httpxtest.Body(cargoRel)}},
+				httpxtest.Call{URL: cargoURL, Response: &http.Response{StatusCode: 200, Body: httpxtest.Body(cargoPkg.String())}},
+			),
+			want: "https://github.com/example/rust-ext",
+		},
+		{
+			name:   "PkgInfoSourceOverridesCargoRepository",
+			target: rebuild.Target{Ecosystem: rebuild.PyPI, Package: "rust-ext", Version: "0.1.0"},
+			calls: staticCalls(
+				httpxtest.Call{URL: "https://pypi.org/pypi/rust-ext/0.1.0/json", Response: &http.Response{StatusCode: 200, Body: httpxtest.Body(overrideRel)}},
+				httpxtest.Call{URL: "https://pypi.org/pypi/rust-ext/json", Response: &http.Response{StatusCode: 200, Body: httpxtest.Body(`{"info":{"name":"rust-ext"}}`)}},
+				httpxtest.Call{URL: "https://pypi.org/pypi/rust-ext/0.1.0/json", Response: &http.Response{StatusCode: 200, Body: httpxtest.Body(overrideRel)}},
+				httpxtest.Call{URL: cargoURL, Response: &http.Response{StatusCode: 200, Body: httpxtest.Body(pkgInfoOverridesCargo.String())}},
+			),
+			want: "https://github.com/example/pkg-info-repo",
+		},
+		{
+			name:   "InvalidCargoTOMLFailsOpenToPkgInfoBody",
+			target: rebuild.Target{Ecosystem: rebuild.PyPI, Package: "rust-ext", Version: "0.1.0"},
+			calls: staticCalls(
+				httpxtest.Call{URL: "https://pypi.org/pypi/rust-ext/0.1.0/json", Response: &http.Response{StatusCode: 200, Body: httpxtest.Body(bodyRel)}},
+				httpxtest.Call{URL: "https://pypi.org/pypi/rust-ext/json", Response: &http.Response{StatusCode: 200, Body: httpxtest.Body(`{"info":{"name":"rust-ext"}}`)}},
+				httpxtest.Call{URL: "https://pypi.org/pypi/rust-ext/0.1.0/json", Response: &http.Response{StatusCode: 200, Body: httpxtest.Body(bodyRel)}},
+				httpxtest.Call{URL: cargoURL, Response: &http.Response{StatusCode: 200, Body: httpxtest.Body(invalidCargoWithBody.String())}},
+			),
+			want: "https://github.com/example/rust-ext",
+		},
+		{
+			name:   "CorruptTarAfterPkgInfoPreservesMetadata",
+			target: rebuild.Target{Ecosystem: rebuild.PyPI, Package: "rust-ext", Version: "0.1.0"},
+			calls: staticCalls(
+				httpxtest.Call{URL: "https://pypi.org/pypi/rust-ext/0.1.0/json", Response: &http.Response{StatusCode: 200, Body: httpxtest.Body(corruptTailRel)}},
+				httpxtest.Call{URL: "https://pypi.org/pypi/rust-ext/json", Response: &http.Response{StatusCode: 200, Body: httpxtest.Body(`{"info":{"name":"rust-ext"}}`)}},
+				httpxtest.Call{URL: "https://pypi.org/pypi/rust-ext/0.1.0/json", Response: &http.Response{StatusCode: 200, Body: httpxtest.Body(corruptTailRel)}},
+				httpxtest.Call{URL: cargoURL, Response: &http.Response{StatusCode: 200, Body: httpxtest.Body(corruptAfterPkgInfo.String())}},
+			),
+			want: "https://github.com/example/rust-ext",
+		},
+		{
+			name:   "MidStreamReadErrorAfterPkgInfoFailsClosed",
+			target: rebuild.Target{Ecosystem: rebuild.PyPI, Package: "rust-ext", Version: "0.1.0"},
+			calls: staticCalls(
+				httpxtest.Call{URL: "https://pypi.org/pypi/rust-ext/0.1.0/json", Response: &http.Response{StatusCode: 200, Body: httpxtest.Body(bodyOnlyRel)}},
+				httpxtest.Call{URL: "https://pypi.org/pypi/rust-ext/json", Response: &http.Response{StatusCode: 200, Body: httpxtest.Body(`{"info":{"name":"rust-ext"}}`)}},
+				httpxtest.Call{URL: "https://pypi.org/pypi/rust-ext/0.1.0/json", Response: &http.Response{StatusCode: 200, Body: httpxtest.Body(bodyOnlyRel)}},
+				httpxtest.Call{URL: cargoURL, Response: &http.Response{StatusCode: 200, Body: io.NopCloser(io.MultiReader(bytes.NewReader(pkgInfoBodyOnly.Bytes()), iotest.ErrReader(errors.New("connection reset"))))}},
+			),
+			wantErr: "reading sdist rust_ext-0.1.0.tar.gz: connection reset",
 		},
 		{
 			name:   "MissingSdist",
