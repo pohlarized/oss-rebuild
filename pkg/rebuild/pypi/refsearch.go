@@ -27,9 +27,21 @@ import (
 	"github.com/pkg/errors"
 )
 
+type tagRank int
+
+const (
+	tagNone          tagRank = iota // untagged or naming a different release
+	tagUnversioned                  // tag carrying no version or build number
+	tagMatchesTarget                // tag naming the target version or build number
+)
+
 var (
-	epochPrefixPat = regexp.MustCompile(`^\d+!`)
-	baseReleasePat = regexp.MustCompile(`^\d+(?:\.\d+)*`)
+	epochPrefixPat      = regexp.MustCompile(`^\d+!`)
+	baseReleasePat      = regexp.MustCompile(`^\d+(?:\.\d+)*`)
+	plainReleasePat     = regexp.MustCompile(`^\d+(?:\.\d+)*$`)
+	bareDigitsPat       = regexp.MustCompile(`^\d+$`)
+	dottedTagVersionPat = regexp.MustCompile(`(?i)\d+(?:\.\d+)+(?:[._-]?(?:alpha|beta|preview|pre|post|dev|rc|a|b|c)\d*|\+[a-z0-9._-]+)*`)
+	vPrefixSingleVerPat = regexp.MustCompile(`(?i)^v\d+(?:[._-]?(?:alpha|beta|preview|pre|post|dev|rc|a|b|c)\d*)*$`)
 )
 
 func shortHash(h string) string {
@@ -76,7 +88,13 @@ func resolveContradictingTag(ctx context.Context, mux rebuild.RegistryMux, pkg, 
 		return "", err
 	}
 	tagHasBestOverlap := matched > 0 && slices.ContainsFunc(candidates, func(c *git2.Commit) bool { return c.Hash == tagCommit.Hash })
-	pick, err := pickByDeclaredVersion(ctx, candidates, pkg, version, a.UploadTime)
+	var tagged map[git2.Hash]tagRank
+	if len(candidates) > 1 {
+		if tagged, err = taggedCommitsForVersion(repo, pkg, version); err != nil {
+			return "", err
+		}
+	}
+	pick, err := pickByDeclaredVersion(ctx, candidates, pkg, version, a.UploadTime, tagged)
 	if err != nil {
 		return "", err
 	}
@@ -158,7 +176,13 @@ func matchArchiveBlobs(ctx context.Context, hashes []plumbing.Hash, pkg, version
 	if err != nil {
 		return "", err
 	}
-	pick, err := pickByDeclaredVersion(ctx, candidates, pkg, version, uploaded)
+	var tagged map[git2.Hash]tagRank
+	if len(candidates) > 1 {
+		if tagged, err = taggedCommitsForVersion(repo, pkg, version); err != nil {
+			return "", err
+		}
+	}
+	pick, err := pickByDeclaredVersion(ctx, candidates, pkg, version, uploaded, tagged)
 	if err != nil {
 		return "", err
 	}
@@ -199,21 +223,29 @@ const maxVettedTies = 1000
 // file was found and then anywhere in its tree. A build file confirming
 // version keeps its commit in the running, one declaring none (or a CI
 // placeholder) leaves it neutral, and one naming another version drops it.
-// Commit time then orders the survivors: the latest confirming candidate, the
-// version's final state, else the earliest neutral one, where the content was
-// introduced, else nil. Spellings are compared under the approximate ordering,
-// since PyPI canonicalizes them.
+// Tag rank orders survivors ahead of commit time so git-describe builds see a
+// matching tag before an unversioned tag or an untagged commit. Within the
+// top rank, commit time picks the latest confirming candidate (the version's
+// final state) or else the earliest neutral one (where the content was
+// introduced). Spellings are compared under the approximate ordering, since
+// PyPI canonicalizes them.
 //
 // Candidates authored over a day after uploaded are too late to have built the
 // archive and are dropped, as author time survives rebases. The rest are read
-// newest first, up to maxVettedTies, until one confirms version.
-func pickByDeclaredVersion(ctx context.Context, candidates []*git2.Commit, pkg, version string, uploaded time.Time) (*git2.Commit, error) {
+// highest-ranked and newest first, up to maxVettedTies, until one confirms
+// version.
+func pickByDeclaredVersion(ctx context.Context, candidates []*git2.Commit, pkg, version string, uploaded time.Time, tagged map[git2.Hash]tagRank) (*git2.Commit, error) {
 	candidates = slices.Clone(candidates)
 	if !uploaded.IsZero() {
 		cutoff := uploaded.Add(24 * time.Hour)
 		candidates = slices.DeleteFunc(candidates, func(c *git2.Commit) bool { return c.Author.When.After(cutoff) })
 	}
-	slices.SortStableFunc(candidates, func(a, b *git2.Commit) int { return byCommitTime(b, a) })
+	slices.SortStableFunc(candidates, func(a, b *git2.Commit) int {
+		if rc := cmp.Compare(tagged[b.Hash], tagged[a.Hash]); rc != 0 {
+			return rc
+		}
+		return byCommitTime(b, a)
+	})
 	var neutral *git2.Commit
 	var dir string
 	for _, c := range candidates[:min(len(candidates), maxVettedTies)] {
@@ -229,7 +261,7 @@ func pickByDeclaredVersion(ctx context.Context, candidates []*git2.Commit, pkg, 
 			declared = ""
 		}
 		switch {
-		case declared == "" && (neutral == nil || byCommitTime(c, neutral) < 0):
+		case declared == "" && (neutral == nil || tagged[c.Hash] == tagged[neutral.Hash] && byCommitTime(c, neutral) < 0):
 			neutral = c
 		case declared != "" && pypiresolver.SameVersion(declared, version):
 			return c, nil
@@ -240,6 +272,94 @@ func pickByDeclaredVersion(ctx context.Context, candidates []*git2.Commit, pkg, 
 
 func byCommitTime(a, b *git2.Commit) int {
 	return a.Committer.When.Compare(b.Committer.When)
+}
+
+// taggedCommitsForVersion maps commits pointed to by version-compatible tags
+// to their match rank, peeling nested annotated tags via ResolveRevision. Tags
+// naming a different version, pre/post/dev suffix, or bare build number are
+// excluded.
+func taggedCommitsForVersion(repo *git2.Repository, pkg, version string) (map[git2.Hash]tagRank, error) {
+	iter, err := repo.Tags()
+	if err != nil {
+		return nil, errors.Wrap(err, "listing tags")
+	}
+	lastSeg, hasLastSeg := trailingReleaseSegment(version)
+	tagged := make(map[git2.Hash]tagRank)
+	err = iter.ForEach(func(ref *git2.Reference) error {
+		name := ref.Name().Short()
+		rank := versionTagRank(name, pkg, version, lastSeg, hasLastSeg)
+		if rank == tagNone {
+			return nil
+		}
+		commit, err := repo.ResolveRevision(git2.Revision(ref.Hash().String()))
+		if err != nil {
+			if errors.Is(err, git2.ErrReferenceNotFound) && isNonCommitObject(repo, ref.Hash()) {
+				return nil
+			}
+			return errors.Wrapf(err, "peeling tag %s", name)
+		}
+		tagged[*commit] = max(tagged[*commit], rank)
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return tagged, nil
+}
+
+func versionTagRank(tag, pkg, version string, lastSeg int, hasLastSeg bool) tagRank {
+	if strict, _ := rebuild.MatchTag(tag, pkg, version); strict {
+		return tagMatchesTarget
+	}
+	if bareDigitsPat.MatchString(tag) {
+		n, err := strconv.Atoi(tag)
+		if err == nil && hasLastSeg && n == lastSeg {
+			return tagMatchesTarget
+		}
+		return tagNone
+	}
+	if tagVers := dottedTagVersionPat.FindAllString(tag, -1); len(tagVers) > 0 {
+		if slices.ContainsFunc(tagVers, func(tv string) bool { return pypiresolver.SameVersion(tv, version) }) {
+			return tagMatchesTarget
+		}
+		return tagNone
+	}
+	if vPrefixSingleVerPat.MatchString(tag) {
+		if pypiresolver.SameVersion(tag[1:], version) {
+			return tagMatchesTarget
+		}
+		return tagNone
+	}
+	return tagUnversioned
+}
+
+func trailingReleaseSegment(version string) (int, bool) {
+	s := strings.TrimSpace(version)
+	s = strings.TrimPrefix(strings.TrimPrefix(s, "v"), "V")
+	s = epochPrefixPat.ReplaceAllString(s, "")
+	if !plainReleasePat.MatchString(s) {
+		return 0, false
+	}
+	if dot := strings.LastIndexByte(s, '.'); dot >= 0 {
+		s = s[dot+1:]
+	}
+	n, err := strconv.Atoi(s)
+	return n, err == nil
+}
+
+// isNonCommitObject reports whether h is a present tree or blob, or an
+// annotated tag directly targeting one, which ResolveRevision rejects as
+// ErrReferenceNotFound despite a healthy object database.
+func isNonCommitObject(repo *git2.Repository, h git2.Hash) bool {
+	t, _, err := repo.ObjectHeader(h)
+	if err != nil {
+		return false
+	}
+	if t == git2.BlobObject || t == git2.TreeObject {
+		return true
+	}
+	tag, err := repo.TagObject(h)
+	return err == nil && (tag.TargetType == git2.BlobObject || tag.TargetType == git2.TreeObject)
 }
 
 // declaredVersionContradicts reports whether commit statically declares a

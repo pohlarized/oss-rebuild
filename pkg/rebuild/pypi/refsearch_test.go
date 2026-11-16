@@ -14,7 +14,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/plumbing"
+	"github.com/go-git/go-git/v5/plumbing/object"
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/oss-rebuild/internal/gitx/gitxtest"
 	"github.com/google/oss-rebuild/pkg/archive"
@@ -246,4 +248,201 @@ func TestArchiveBlobs(t *testing.T) {
 			t.Errorf("archiveBlobs(%s) = %v, %v, want %v", name, got, err, want)
 		}
 	}
+}
+
+func TestMatchArchiveBlobsTagTieBreaking(t *testing.T) {
+	const (
+		modSrc    = "def compute():\n    return 'opencv wrapper module body'\n"
+		dynPyproj = "[project]\nname = \"opencv-python\"\ndynamic = [\"version\"]\n"
+	)
+	hashes := wheelHashes(t, []archive.ZipEntry{
+		zipEntry("pkg/mod.py", modSrc),
+	})
+	t1 := time.Date(2026, time.January, 1, 0, 0, 0, 0, time.UTC)
+	t2 := time.Date(2026, time.January, 2, 0, 0, 0, 0, time.UTC)
+	beyondMaxVetted := func() []gitxtest.Commit {
+		commits := make([]gitxtest.Commit, 0, maxVettedTies+3)
+		commits = append(commits, gitxtest.Commit{
+			ID:    "tagged",
+			Time:  t1,
+			Tag:   "84",
+			Files: gitxtest.FileContent{"pyproject.toml": dynPyproj, "pkg/mod.py": modSrc},
+		})
+		parent := "tagged"
+		for i := range maxVettedTies + 2 {
+			id := fmt.Sprintf("doc-%d", i)
+			commits = append(commits, gitxtest.Commit{
+				ID:     id,
+				Time:   t1.Add(time.Duration(i+1) * time.Second),
+				Parent: parent,
+				Files:  gitxtest.FileContent{"README.md": fmt.Sprintf("rev %d\n", i)},
+			})
+			parent = id
+		}
+		return commits
+	}()
+	tests := []struct {
+		name         string
+		pkg          string
+		version      string
+		commits      []gitxtest.Commit
+		annotatedTag string
+		tagCommitID  string
+		want         string
+	}{
+		{
+			name:    "PrefersLightweightTaggedCommitOverEarlierTreeIdenticalCommit",
+			pkg:     "opencv-python",
+			version: "4.10.0.84",
+			commits: []gitxtest.Commit{
+				{ID: "untagged", Time: t1, Files: gitxtest.FileContent{"pyproject.toml": dynPyproj, "pkg/mod.py": modSrc}},
+				{ID: "tagged", Time: t2, Parent: "untagged", Tag: "84"},
+			},
+			want: "tagged",
+		},
+		{
+			name:    "PrefersAnnotatedTaggedCommitOverEarlierTreeIdenticalCommit",
+			pkg:     "opencv-python",
+			version: "5.0.0.93",
+			commits: []gitxtest.Commit{
+				{ID: "untagged", Time: t1, Files: gitxtest.FileContent{"pyproject.toml": dynPyproj, "pkg/mod.py": modSrc}},
+				{ID: "tagged", Time: t2, Parent: "untagged"},
+			},
+			annotatedTag: "93",
+			tagCommitID:  "tagged",
+			want:         "tagged",
+		},
+		{
+			name:    "PrefersTaggedConfirmingCommitOverNewerUntaggedCommit",
+			pkg:     "acme",
+			version: "1.2.0",
+			commits: []gitxtest.Commit{
+				{ID: "tagged", Time: t1, Tag: "v1.2.0", Files: gitxtest.FileContent{"pyproject.toml": pyprojectTOML("acme", "1.2.0"), "pkg/mod.py": modSrc}},
+				{ID: "post-doc", Time: t2, Parent: "tagged", Files: gitxtest.FileContent{"README.md": "post-tag doc tweak\n"}},
+			},
+			want: "tagged",
+		},
+		{
+			name:    "PrefersTaggedCommitBeforeMaxVettedTiesCutoff",
+			pkg:     "opencv-python",
+			version: "4.10.0.84",
+			commits: beyondMaxVetted,
+			want:    "tagged",
+		},
+		{
+			name:    "PrefersMatchingBareBuildTagOverEarlierBuildTag",
+			pkg:     "opencv-python",
+			version: "4.10.0.84",
+			commits: []gitxtest.Commit{
+				{ID: "prev-build", Time: t1, Tag: "83", Files: gitxtest.FileContent{"pyproject.toml": dynPyproj, "pkg/mod.py": modSrc}},
+				{ID: "curr-build", Time: t2, Parent: "prev-build", Tag: "84", Files: gitxtest.FileContent{"README.md": "build 84\n"}},
+			},
+			want: "curr-build",
+		},
+		{
+			name:    "PrefersFinalTagOverEarlierPreReleaseTag",
+			pkg:     "acme",
+			version: "1.2.0",
+			commits: []gitxtest.Commit{
+				{ID: "rc", Time: t1, Tag: "v1.2.0rc1", Files: gitxtest.FileContent{"pyproject.toml": dynPyproj, "pkg/mod.py": modSrc}},
+				{ID: "final", Time: t2, Parent: "rc", Tag: "v1.2.0", Files: gitxtest.FileContent{"README.md": "final release\n"}},
+			},
+			want: "final",
+		},
+		{
+			name:    "PrefersVersionedTagOverEarlierUnversionedTag",
+			pkg:     "opencv-python",
+			version: "4.10.0.84",
+			commits: []gitxtest.Commit{
+				{ID: "stable-tag", Time: t1, Tag: "stable", Files: gitxtest.FileContent{"pyproject.toml": dynPyproj, "pkg/mod.py": modSrc}},
+				{ID: "build-tag", Time: t2, Parent: "stable-tag", Tag: "84", Files: gitxtest.FileContent{"README.md": "build 84\n"}},
+			},
+			want: "build-tag",
+		},
+		{
+			name:    "IgnoresSameBasePreReleaseTagWhenRebuildingFinal",
+			pkg:     "acme",
+			version: "1.2.0",
+			commits: []gitxtest.Commit{
+				{ID: "earliest", Time: t1, Files: gitxtest.FileContent{"pyproject.toml": dynPyproj, "pkg/mod.py": modSrc}},
+				{ID: "rc", Time: t2, Parent: "earliest", Tag: "v1.2.0rc1", Files: gitxtest.FileContent{"README.md": "rc docs\n"}},
+			},
+			want: "earliest",
+		},
+		{
+			name:    "IgnoresContradictingVersionTagWhenBreakingTies",
+			pkg:     "opencv-python",
+			version: "2.5.1",
+			commits: []gitxtest.Commit{
+				{ID: "earliest", Time: t1, Files: gitxtest.FileContent{"pyproject.toml": dynPyproj, "pkg/mod.py": modSrc}},
+				{ID: "other-rc", Time: t2, Parent: "earliest", Tag: "2.5.0rc1", Files: gitxtest.FileContent{"README.md": "rc docs\n"}},
+			},
+			want: "earliest",
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			repo := must(gitxtest.CreateRepo(tc.commits, nil))
+			g2 := repo.Repository
+			if tc.annotatedTag != "" {
+				_, err := repo.GoGit.CreateTag(tc.annotatedTag, repo.Commits[tc.tagCommitID], &git.CreateTagOptions{
+					Tagger:  &object.Signature{Name: "Maintainer", Email: "m@example.com", When: t2},
+					Message: "release " + tc.annotatedTag,
+				})
+				if err != nil {
+					t.Fatalf("CreateTag(%q): %v", tc.annotatedTag, err)
+				}
+				g2 = must(gitxtest.Open(repo.Storer))
+			}
+			got, err := matchArchiveBlobs(context.Background(), hashes, tc.pkg, tc.version, time.Time{}, g2)
+			if err != nil {
+				t.Fatalf("matchArchiveBlobs() error = %v", err)
+			}
+			want := repo.Commits[tc.want].String()
+			if diff := cmp.Diff(want, got); diff != "" {
+				t.Errorf("matchArchiveBlobs() diff (-want +got):\n%s", diff)
+			}
+		})
+	}
+	t.Run("SkipsTagPointingAtBlobObject", func(t *testing.T) {
+		repo := must(gitxtest.CreateRepo([]gitxtest.Commit{
+			{ID: "c1", Time: t1, Files: gitxtest.FileContent{"pyproject.toml": dynPyproj, "pkg/mod.py": modSrc}},
+			{ID: "c2", Time: t2, Parent: "c1", Tag: "84", Files: gitxtest.FileContent{"README.md": "next\n"}},
+		}, nil))
+		blobEnc := repo.Storer.NewEncodedObject()
+		blobEnc.SetType(plumbing.BlobObject)
+		w := must(blobEnc.Writer())
+		must(w.Write([]byte("pgp public key block\n")))
+		must(0, w.Close())
+		blobHash := must(repo.Storer.SetEncodedObject(blobEnc))
+		must(0, repo.Storer.SetReference(plumbing.NewHashReference(plumbing.NewTagReferenceName("gpg-pubkey"), blobHash)))
+		g2 := must(gitxtest.Open(repo.Storer))
+		got, err := matchArchiveBlobs(context.Background(), hashes, "opencv-python", "4.10.0.84", time.Time{}, g2)
+		if err != nil {
+			t.Fatalf("matchArchiveBlobs() error = %v", err)
+		}
+		if want := repo.Commits["c2"].String(); got != want {
+			t.Errorf("matchArchiveBlobs() = %q, want %q", got, want)
+		}
+	})
+	t.Run("PropagatesBrokenTagPeelError", func(t *testing.T) {
+		repo := must(gitxtest.CreateRepo([]gitxtest.Commit{
+			{ID: "c1", Time: t1, Files: gitxtest.FileContent{"pyproject.toml": dynPyproj, "pkg/mod.py": modSrc}},
+			{ID: "c2", Time: t2, Parent: "c1", Files: gitxtest.FileContent{"README.md": "next\n"}},
+		}, nil))
+		enc := repo.Storer.NewEncodedObject()
+		must(0, (&object.Tag{
+			Name:       "84",
+			Tagger:     object.Signature{Name: "Maintainer", Email: "m@example.com", When: t2},
+			Message:    "dangling tag target",
+			TargetType: plumbing.CommitObject,
+			Target:     plumbing.NewHash("baadf00dbaadf00dbaadf00dbaadf00dbaadf00d"),
+		}).Encode(enc))
+		badTagHash := must(repo.Storer.SetEncodedObject(enc))
+		must(0, repo.Storer.SetReference(plumbing.NewHashReference(plumbing.NewTagReferenceName("84"), badTagHash)))
+		g2 := must(gitxtest.Open(repo.Storer))
+		if _, err := matchArchiveBlobs(context.Background(), hashes, "opencv-python", "4.10.0.84", time.Time{}, g2); err == nil {
+			t.Fatalf("matchArchiveBlobs() = nil error, want tag peel error")
+		}
+	})
 }
